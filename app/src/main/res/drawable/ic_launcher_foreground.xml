@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Center core pulse -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,49 L59,54 L54,59 L49,54 Z" />
+
+    <!-- UP Arrow (Green / Neon Emerald) -->
+    <path
+        android:fillColor="#00E676"
+        android:pathData="M54,23 L65,35 L58,35 L58,45 L50,45 L50,35 L43,35 Z" />
+
+    <!-- DOWN Arrow (Cyan / Electric Blue) -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M54,85 L43,73 L50,73 L50,63 L58,63 L58,73 L65,73 Z" />
+
+    <!-- LEFT Arrow (Vivid Crimson Pink) -->
+    <path
+        android:fillColor="#FF1744"
+        android:pathData="M23,54 L35,43 L35,50 L45,50 L45,58 L35,58 L35,65 Z" />
+
+    <!-- RIGHT Arrow (Bright Amber / Orange) -->
+    <path
+        android:fillColor="#FF6D00"
+        android:pathData="M85,54 L73,65 L73,58 L63,58 L63,50 L73,50 L73,43 Z" />
+
+</vector>

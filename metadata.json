@@ -1,0 +1,6 @@
+{
+  "name": "RhythmPad7",
+  "description": "Native Android rhythm game foundation inspired by StepMania with USB dance-mat controller support and 4-lane vertical playfield.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
