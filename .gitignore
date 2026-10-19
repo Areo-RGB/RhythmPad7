@@ -17,6 +17,7 @@ Thumbs.db
 .externalNativeBuild/
 .cxx/
 *.apk
+!/app-debug.apk
 *.aab
 *.apks
 *.hprof
