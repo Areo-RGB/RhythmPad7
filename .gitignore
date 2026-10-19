@@ -1,18 +1,61 @@
+# IDE and local project configuration
+/.idea/
+/.vscode/
 *.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.project
+.classpath
+.settings/
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+Thumbs.db
+**/local.properties
+
+# Gradle, Kotlin, and Android build output
+.gradle/
+.kotlin/
+**/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.apks
+*.hprof
+*.jfr
+*.log
+*.tmp
+*.swp
+*~
+
+# Local secrets, environment, and signing materials
 .env
-debug.keystore
+.env.*
+!.env.example
+!.env.sample
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+key.properties
+secrets.properties
+google-services.json
+
+# Local development integrations/config (may contain machine-specific settings)
+/.agents/
+/.mcp.json
+
+# Reference sources and extracted third-party charts are LOCAL ONLY.
+# Curated, permission-checked app assets belong in app/src/main/assets/.
+/stepmania-pcapp/
+/pc.version/
+/dancepad/
+/patterns/
+/pad_mapping.json
+
+# Python caches from local extraction/validation tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
