@@ -12,8 +12,8 @@ android {
     applicationId = "com.rhythmpad7.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.1.1"
+    versionCode = 2
+    versionName = "0.2.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -106,3 +106,33 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.test.manifest)
   debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+// Automatically copy the generated debug APK to the project root on every debug build
+abstract class CopyApkTask : DefaultTask() {
+  @get:InputFile
+  @get:Optional
+  abstract val apkFile: RegularFileProperty
+
+  @get:OutputFile
+  abstract val destinationFile: RegularFileProperty
+
+  @TaskAction
+  fun copyApk() {
+    val src = apkFile.orNull?.asFile
+    val dst = destinationFile.get().asFile
+    if (src != null && src.exists()) {
+      src.copyTo(dst, overwrite = true)
+    }
+  }
+}
+
+val copyDebugApkToRoot by tasks.registering(CopyApkTask::class) {
+  apkFile.set(layout.buildDirectory.file("outputs/apk/debug/app-debug.apk"))
+  destinationFile.set(layout.projectDirectory.file("../app-debug.apk"))
+  mustRunAfter("packageDebug", "createDebugApkListingFileRedirect")
+}
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+  finalizedBy(copyDebugApkToRoot)
+}
+

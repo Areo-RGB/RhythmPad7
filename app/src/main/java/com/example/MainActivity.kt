@@ -107,11 +107,11 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
   var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
 
   val inputState by viewModel.inputState.collectAsStateWithLifecycle()
+  val roundState by viewModel.roundState.collectAsStateWithLifecycle()
   val controllerInfo by viewModel.controllerInfo.collectAsStateWithLifecycle()
   val currentMapping by viewModel.currentMapping.collectAsStateWithLifecycle()
   val capturingLane by viewModel.capturingLane.collectAsStateWithLifecycle()
   val isDebugVisible by viewModel.isDebugOverlayVisible.collectAsStateWithLifecycle()
-  val isSimVisible by viewModel.isSimulatedInputVisible.collectAsStateWithLifecycle()
   val isPaused by viewModel.isPaused.collectAsStateWithLifecycle()
 
   AnimatedContent(
@@ -125,7 +125,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           controllerInfo = controllerInfo,
           inputState = inputState,
           onStartGame = {
-            viewModel.resumeGame()
+            viewModel.startNewRound()
             currentScreen = AppScreen.GAMEPLAY
           },
           onOpenSettings = {
@@ -140,18 +140,15 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
       AppScreen.GAMEPLAY -> {
         GameplayScreen(
           inputState = inputState,
+          roundState = roundState,
           controllerInfo = controllerInfo,
           isDebugOverlayVisible = isDebugVisible,
-          isSimulatedInputVisible = isSimVisible,
           isPaused = isPaused,
-          onSimulatedInput = { lane, isPressed ->
-            viewModel.onSimulatedInput(lane, isPressed)
+          onAdvanceRoundBy = { deltaMs ->
+            viewModel.advanceRoundBy(deltaMs)
           },
           onToggleDebug = {
             viewModel.toggleDebugOverlay()
-          },
-          onToggleSimulatedInput = {
-            viewModel.toggleSimulatedInput()
           },
           onTogglePause = {
             viewModel.togglePause()
@@ -159,11 +156,11 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           onResume = {
             viewModel.resumeGame()
           },
-          onResetCounters = {
-            viewModel.resetCounters()
+          onRestartRound = {
+            viewModel.restartRound()
           },
           onNavigateBack = {
-            viewModel.clearPressedStates()
+            viewModel.stopRound()
             currentScreen = AppScreen.HOME
           }
         )

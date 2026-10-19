@@ -140,25 +140,20 @@ data class ControllerMapping(
      * - DOWN: KEYCODE_BUTTON_2
      * - UP: KEYCODE_BUTTON_3
      * - RIGHT: KEYCODE_BUTTON_4
-     * Also retains keyboard fallback (D, F, J, K) for emulator development.
      */
     fun createMicrontekDefaults(): ControllerMapping {
       return ControllerMapping(
         leftBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_1, "KEYCODE_BUTTON_1"),
-          InputBinding.Key(KeyEvent.KEYCODE_D, "KEYCODE_D")
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_1, "KEYCODE_BUTTON_1")
         ),
         downBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_2, "KEYCODE_BUTTON_2"),
-          InputBinding.Key(KeyEvent.KEYCODE_F, "KEYCODE_F")
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_2, "KEYCODE_BUTTON_2")
         ),
         upBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_3, "KEYCODE_BUTTON_3"),
-          InputBinding.Key(KeyEvent.KEYCODE_J, "KEYCODE_J")
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_3, "KEYCODE_BUTTON_3")
         ),
         rightBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_4, "KEYCODE_BUTTON_4"),
-          InputBinding.Key(KeyEvent.KEYCODE_K, "KEYCODE_K")
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_4, "KEYCODE_BUTTON_4")
         )
       )
     }

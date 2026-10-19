@@ -2,9 +2,7 @@ package com.example.core.input
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.view.KeyEvent
 import com.example.core.model.ControllerMapping
-import com.example.core.model.GameLane
 import com.example.core.model.InputBinding
 
 interface ControllerMappingStore {
@@ -30,19 +28,18 @@ class SharedPreferencesMappingStore(context: Context) : ControllerMappingStore {
       return defaults
     }
 
-    // Migration logic: Check if stored mapping is the v0.1.0 generic default
-    // (which used DPAD_LEFT or AXIS_HAT instead of the confirmed BUTTON_1..4).
-    if (version < 2) {
-      val isOldGenericDefault = (leftRaw.contains("KEYCODE_DPAD_LEFT") || leftRaw.contains("KEYCODE_BUTTON_X")) &&
-          !leftRaw.contains("KEYCODE_BUTTON_1")
+    // Migration logic: Check if stored mapping is an older default
+    // (which used DPAD_LEFT, BUTTON_X, or keyboard D/F/J/K fallback).
+    if (version < 3) {
+      val isOldDefault = leftRaw.contains("KEYCODE_DPAD_LEFT") ||
+          leftRaw.contains("KEYCODE_BUTTON_X") ||
+          leftRaw.contains("KEYCODE_D")
 
-      if (isOldGenericDefault) {
-        // Safely migrate old generic defaults to confirmed Microntek defaults
+      if (isOldDefault) {
         saveMapping(defaults)
         return defaults
       } else {
-        // User had explicit custom mappings; mark version migrated without overwriting
-        prefs.edit().putInt(KEY_VERSION, 2).apply()
+        prefs.edit().putInt(KEY_VERSION, 3).apply()
       }
     }
 
@@ -65,7 +62,7 @@ class SharedPreferencesMappingStore(context: Context) : ControllerMappingStore {
       .putString(KEY_DOWN, serializeList(mapping.downBindings))
       .putString(KEY_UP, serializeList(mapping.upBindings))
       .putString(KEY_RIGHT, serializeList(mapping.rightBindings))
-      .putInt(KEY_VERSION, 2)
+      .putInt(KEY_VERSION, 3)
       .apply()
   }
 

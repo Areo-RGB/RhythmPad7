@@ -10,16 +10,17 @@ import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import com.example.core.model.GameLane
+import com.example.core.model.Judgment
 
 /**
- * Geometric vector paths and rendering routines for DDR/StepMania style arrow receptors
- * and lane visual feedback using Jetpack Compose Canvas.
+ * Geometric vector paths and rendering routines for DDR/StepMania style arrow receptors,
+ * scrolling note arrows, hit bursts, and lane visual feedback using Jetpack Compose Canvas.
  */
 object ArrowDrawing {
 
   /**
    * Builds an arrow path pointing UP, centered at (centerX, centerY) with given radius.
-   * Can be rotated to point LEFT (-90°), RIGHT (+90°), or DOWN (180°).
+   * Can be rotated to point LEFT (270°), RIGHT (90°), or DOWN (180°).
    */
   fun createUpArrowPath(centerX: Float, centerY: Float, radius: Float): Path {
     val path = Path()
@@ -55,7 +56,7 @@ object ArrowDrawing {
   }
 
   /**
-   * Draws a complete arrow receptor with idle and pressed visual feedback.
+   * Draws a fixed target arrow receptor at the top of the lane with idle and pressed visual feedback.
    */
   fun drawReceptor(
     drawScope: DrawScope,
@@ -103,8 +104,7 @@ object ArrowDrawing {
           style = Stroke(width = size * 0.04f)
         )
       } else {
-        // Idle/Unpressed Receptor State
-
+        // Idle/Unpressed Receptor State (Translucent target silhouette)
         // 1. Semi-translucent dark glass backdrop
         drawPath(
           path = arrowPath,
@@ -122,7 +122,7 @@ object ArrowDrawing {
         // 3. Crisp outer silhouette outline
         drawPath(
           path = arrowPath,
-          color = Color(0xFF94A3B8), // Slate 400
+          color = Color(0xFF94A3B8),
           style = Stroke(width = size * 0.025f)
         )
 
@@ -134,6 +134,107 @@ object ArrowDrawing {
         )
       }
     }
+  }
+
+  /**
+   * Draws an upward-scrolling note arrow in the given lane.
+   * Distinct from the stationary hollow receptor by its solid vibrant neon fill,
+   * bright inner core, and crisp white rim.
+   */
+  fun drawScrollingNote(
+    drawScope: DrawScope,
+    lane: GameLane,
+    center: Offset,
+    size: Float,
+    isMissed: Boolean = false
+  ) {
+    val rotation = getRotationForLane(lane)
+    val arrowRadius = size * 0.44f
+    val arrowPath = createUpArrowPath(center.x, center.y, arrowRadius)
+    val baseColor = if (isMissed) Color(0xFFEF4444) else lane.defaultColor
+    val alphaMultiplier = if (isMissed) 0.38f else 1.0f
+
+    drawScope.rotate(degrees = rotation, pivot = center) {
+      // 1. Subtle outer bloom around approaching note
+      if (!isMissed) {
+        val haloPath = createUpArrowPath(center.x, center.y, arrowRadius * 1.14f)
+        drawPath(
+          path = haloPath,
+          color = baseColor.copy(alpha = 0.25f),
+          style = Fill
+        )
+      }
+
+      // 2. Solid high-contrast note fill
+      drawPath(
+        path = arrowPath,
+        color = baseColor.copy(alpha = 0.94f * alphaMultiplier),
+        style = Fill
+      )
+
+      // 3. Inner bright bevel highlight
+      val innerPath = createUpArrowPath(center.x, center.y, arrowRadius * 0.64f)
+      drawPath(
+        path = innerPath,
+        color = Color.White.copy(alpha = 0.55f * alphaMultiplier),
+        style = Fill
+      )
+
+      // 4. Crisp outer white border
+      drawPath(
+        path = arrowPath,
+        color = Color.White.copy(alpha = 0.95f * alphaMultiplier),
+        style = Stroke(width = size * 0.042f)
+      )
+
+      // 5. Inner dark contrast contour line
+      drawPath(
+        path = innerPath,
+        color = Color(0xFF090D16).copy(alpha = 0.55f * alphaMultiplier),
+        style = Stroke(width = size * 0.02f)
+      )
+    }
+  }
+
+  /**
+   * Draws an expanding hit burst / flash ring on the receptor when a note is judged EXCELLENT or GOOD.
+   * [progress] is normalized in 0f..1f over the burst duration (~220ms).
+   */
+  fun drawHitBurst(
+    drawScope: DrawScope,
+    lane: GameLane,
+    center: Offset,
+    size: Float,
+    judgment: Judgment,
+    progress: Float
+  ) {
+    val clamped = progress.coerceIn(0f, 1f)
+    val alpha = (1f - clamped).coerceIn(0f, 1f)
+    val scale = 1.0f + (clamped * 0.55f)
+    val burstColor = judgment.color
+    val rotation = getRotationForLane(lane)
+    val arrowRadius = size * 0.44f * scale
+    val burstPath = createUpArrowPath(center.x, center.y, arrowRadius)
+
+    drawScope.rotate(degrees = rotation, pivot = center) {
+      drawPath(
+        path = burstPath,
+        color = burstColor.copy(alpha = 0.42f * alpha),
+        style = Fill
+      )
+      drawPath(
+        path = burstPath,
+        color = Color.White.copy(alpha = 0.90f * alpha),
+        style = Stroke(width = size * 0.055f * (1f - clamped * 0.5f))
+      )
+    }
+
+    drawScope.drawCircle(
+      color = burstColor.copy(alpha = 0.50f * alpha),
+      radius = size * 0.52f * scale,
+      center = center,
+      style = Stroke(width = 4f * alpha)
+    )
   }
 
   /**
@@ -152,7 +253,7 @@ object ArrowDrawing {
 
     // Subtle dark lane background
     drawScope.drawRect(
-      color = Color(0x22111827),
+      color = Color(0x28111827),
       topLeft = Offset(laneLeft, 0f),
       size = Size(laneWidth, laneHeight)
     )
@@ -173,10 +274,9 @@ object ArrowDrawing {
 
     // Pressed Laser Beam
     if (isPressed) {
-      // Downward fading beam from receptor to bottom of screen
       val beamBrush = Brush.verticalGradient(
         colors = listOf(
-          laneColor.copy(alpha = 0.40f),
+          laneColor.copy(alpha = 0.42f),
           laneColor.copy(alpha = 0.20f),
           laneColor.copy(alpha = 0.05f),
           Color.Transparent
