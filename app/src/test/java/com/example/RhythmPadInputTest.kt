@@ -3,6 +3,7 @@ package com.example
 import android.content.Context
 import android.view.KeyEvent
 import androidx.test.core.app.ApplicationProvider
+import com.example.core.gameplay.GameplayClock
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.gameplay.PracticePatternGenerator
 import com.example.core.input.ControllerManager
@@ -16,15 +17,16 @@ import com.example.core.model.NoteState
 import com.example.core.model.PracticeNote
 import com.example.core.state.GameInputState
 import com.example.core.state.RhythmGameViewModel
+import com.example.ui.components.PlayfieldGeometry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import kotlin.math.roundToLong
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -388,5 +390,148 @@ class RhythmPadInputTest {
       GameInputEvent(GameLane.LEFT, true, 3000L, InputSource.CONTROLLER, "KEY_188")
     )
     assertEquals(100, viewModel.roundState.value.score)
+  }
+
+  // --- 21. Phase 1: Monotonic GameplayClock eliminates refresh-rate rounding drift at 60/90/120/144 Hz ---
+  @Test
+  fun testGameplayClockEliminatesRefreshRateRoundingDrift() {
+    val refreshRatesHz = listOf(60, 90, 120, 144)
+
+    for (hz in refreshRatesHz) {
+      var currentUptimeMs = 20_000L
+      val clock = GameplayClock { currentUptimeMs }
+      clock.start(atUptimeMs = 20_000L)
+
+      val totalSeconds = 10
+      val totalFrames = hz * totalSeconds
+      val framePeriodNanos = 1_000_000_000.0 / hz.toDouble()
+
+      for (frame in 1..totalFrames) {
+        val elapsedMsFromStart = ((frame * framePeriodNanos) / 1_000_000.0).roundToLong()
+        currentUptimeMs = 20_000L + elapsedMsFromStart
+        clock.elapsedGameplayMs()
+      }
+
+      assertEquals(
+        "At ${hz}Hz, 10s of frames must equal exactly 10000ms with zero cumulative truncation drift",
+        10_000L,
+        clock.elapsedGameplayMs()
+      )
+    }
+  }
+
+  // --- 22. Phase 1: GameplayClock pause/resume offset accuracy and frame-stall resilience ---
+  @Test
+  fun testGameplayClockPauseResumePreservesExactOffsetsAndSurvivesFrameStalls() {
+    var fakeUptimeMs = 10_000L
+    val clock = GameplayClock { fakeUptimeMs }
+    val store = SharedPreferencesMappingStore(context)
+    val manager = ControllerManager(context, store)
+    val viewModel = RhythmGameViewModel(manager, clock)
+
+    viewModel.startNewRound()
+    assertEquals(10_000L, clock.startUptimeMs)
+
+    // Advance 2500ms
+    fakeUptimeMs = 12_500L
+    viewModel.syncRoundClock()
+    assertEquals(2500L, viewModel.roundState.value.currentGameTimeMs)
+
+    // Pause at 12_500L for 4321ms
+    viewModel.pauseGame()
+    fakeUptimeMs = 16_821L
+    assertEquals("Gameplay time must stay frozen at 2500ms while paused", 2500L, clock.elapsedGameplayMs())
+
+    // Resume at 16_821L
+    viewModel.resumeGame()
+    assertEquals(4321L, clock.accumulatedPauseDurationMs)
+
+    // Simulate a 450ms frame stall (16_821L -> 17_271L)
+    fakeUptimeMs = 17_271L
+    viewModel.syncRoundClock()
+    assertEquals(
+      "Frame stall of 450ms must advance chart to exact 2950ms without clamping slowdown",
+      2950L,
+      viewModel.roundState.value.currentGameTimeMs
+    )
+  }
+
+  // --- 23. Phase 2: KeyEvent.eventTime is used for hit judgment instead of last rendered frame time ---
+  @Test
+  fun testPhysicalKeyEventEventTimeUsedInsteadOfDelayedFrameTime() {
+    var fakeUptimeMs = 50_000L
+    val clock = GameplayClock { fakeUptimeMs }
+    val store = SharedPreferencesMappingStore(context)
+    store.resetToDefaults()
+    val manager = ControllerManager(context, store)
+    val viewModel = RhythmGameViewModel(manager, clock)
+
+    viewModel.startNewRound()
+
+    // Last rendered frame occurs at 52_810L -> 2810ms gameplay time (190ms early for the 3000ms note,
+    // which is outside the ±150ms hit window if frame time were mistakenly used!)
+    fakeUptimeMs = 52_810L
+    viewModel.syncRoundClock()
+    assertEquals(2810L, viewModel.roundState.value.currentGameTimeMs)
+
+    // Physical dance-mat press arrives with authoritative KeyEvent.eventTime = 53_018L
+    // (3018ms gameplay time -> +18ms from 3000ms note = EXCELLENT!)
+    fakeUptimeMs = 53_018L
+    val matDownEvent = KeyEvent(53_018L, 53_018L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_1, 0)
+    assertTrue(manager.dispatchKeyEvent(matDownEvent))
+
+    val stateAfterHit = viewModel.roundState.value
+    assertEquals("Note must be judged EXCELLENT using KeyEvent.eventTime", 1, stateAfterHit.excellentCount)
+    assertEquals(100, stateAfterHit.score)
+    assertEquals(18L, stateAfterHit.lastJudgment?.timingErrorMs)
+  }
+
+  // --- 24. Phase 2: Delayed frame rendered after KeyEvent.eventTime still awards accurate hit ---
+  @Test
+  fun testDelayedFrameRenderedAfterKeyEventTimeReclaimsNoteJudgment() {
+    var fakeUptimeMs = 50_000L
+    val clock = GameplayClock { fakeUptimeMs }
+    val store = SharedPreferencesMappingStore(context)
+    store.resetToDefaults()
+    val manager = ControllerManager(context, store)
+    val viewModel = RhythmGameViewModel(manager, clock)
+
+    viewModel.startNewRound()
+
+    // Frame stalls and renders late at 53_190L (3190ms gameplay time, auto-missing the 3000ms note)
+    fakeUptimeMs = 53_190L
+    viewModel.syncRoundClock()
+    assertEquals(1, viewModel.roundState.value.missCount)
+
+    // Buffered physical KeyEvent whose kernel eventTime was 53_025L (3025ms -> +25ms EXCELLENT) is processed
+    val matDownEvent = KeyEvent(53_025L, 53_025L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_1, 0)
+    assertTrue(manager.dispatchKeyEvent(matDownEvent))
+
+    val state = viewModel.roundState.value
+    assertEquals("False auto-miss from delayed frame must be cleared", 0, state.missCount)
+    assertEquals("On-time physical press must be judged EXCELLENT", 1, state.excellentCount)
+    assertEquals(1, state.combo)
+    assertEquals(100, state.score)
+    assertEquals(25L, state.lastJudgment?.timingErrorMs)
+  }
+
+  // --- 25. Phase 3: Centered note highway width and equal lane center alignment ---
+  @Test
+  fun testPlayfieldGeometryCenteredHighwayAndEqualLaneCenters() {
+    // Xiaomi Pad 7 landscape width (~1200 dp)
+    val highwayWidthDp = PlayfieldGeometry.calculateHighwayWidthDp(1200f)
+    assertTrue(
+      "Highway width ($highwayWidthDp dp) must be within 560..640 dp on landscape tablet",
+      highwayWidthDp in PlayfieldGeometry.MIN_HIGHWAY_WIDTH_DP..PlayfieldGeometry.MAX_HIGHWAY_WIDTH_DP
+    )
+
+    val highwayWidthPx = 600f
+    val laneWidthPx = PlayfieldGeometry.laneWidth(highwayWidthPx)
+    assertEquals(150f, laneWidthPx, 0.001f)
+
+    assertEquals(75f, PlayfieldGeometry.laneCenterX(0, laneWidthPx), 0.001f)
+    assertEquals(225f, PlayfieldGeometry.laneCenterX(1, laneWidthPx), 0.001f)
+    assertEquals(375f, PlayfieldGeometry.laneCenterX(2, laneWidthPx), 0.001f)
+    assertEquals(525f, PlayfieldGeometry.laneCenterX(3, laneWidthPx), 0.001f)
   }
 }

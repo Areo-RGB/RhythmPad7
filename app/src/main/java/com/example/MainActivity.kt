@@ -144,8 +144,8 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           controllerInfo = controllerInfo,
           isDebugOverlayVisible = isDebugVisible,
           isPaused = isPaused,
-          onAdvanceRoundBy = { deltaMs ->
-            viewModel.advanceRoundBy(deltaMs)
+          onSyncRoundClock = {
+            viewModel.syncRoundClock()
           },
           onToggleDebug = {
             viewModel.toggleDebugOverlay()

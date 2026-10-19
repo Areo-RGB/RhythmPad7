@@ -19,20 +19,20 @@ import com.example.core.model.Judgment
 object ArrowDrawing {
 
   /**
-   * Builds an arrow path pointing UP, centered at (centerX, centerY) with given radius.
-   * Can be rotated to point LEFT (270°), RIGHT (90°), or DOWN (180°).
+   * Builds a bold, standing-readable arrow path pointing UP, centered at (centerX, centerY)
+   * with given radius. Can be rotated to point LEFT (270°), RIGHT (90°), or DOWN (180°).
    */
   fun createUpArrowPath(centerX: Float, centerY: Float, radius: Float): Path {
     val path = Path()
-    // Canonical StepMania arrow geometry normalized with center notch
-    val topTip = Offset(centerX, centerY - radius * 0.95f)
-    val rightWing = Offset(centerX + radius * 0.92f, centerY + radius * 0.05f)
-    val rightInner = Offset(centerX + radius * 0.40f, centerY - radius * 0.05f)
-    val rightBottom = Offset(centerX + radius * 0.40f, centerY + radius * 0.90f)
-    val bottomNotch = Offset(centerX, centerY + radius * 0.52f)
-    val leftBottom = Offset(centerX - radius * 0.40f, centerY + radius * 0.90f)
-    val leftInner = Offset(centerX - radius * 0.40f, centerY - radius * 0.05f)
-    val leftWing = Offset(centerX - radius * 0.92f, centerY + radius * 0.05f)
+    // Canonical StepMania arrow geometry normalized with high-visibility wing & tail proportions
+    val topTip = Offset(centerX, centerY - radius * 0.96f)
+    val rightWing = Offset(centerX + radius * 0.94f, centerY + radius * 0.04f)
+    val rightInner = Offset(centerX + radius * 0.44f, centerY - radius * 0.04f)
+    val rightBottom = Offset(centerX + radius * 0.44f, centerY + radius * 0.92f)
+    val bottomNotch = Offset(centerX, centerY + radius * 0.56f)
+    val leftBottom = Offset(centerX - radius * 0.44f, centerY + radius * 0.92f)
+    val leftInner = Offset(centerX - radius * 0.44f, centerY - radius * 0.04f)
+    val leftWing = Offset(centerX - radius * 0.94f, centerY + radius * 0.04f)
 
     path.moveTo(topTip.x, topTip.y)
     path.lineTo(rightWing.x, rightWing.y)
@@ -66,18 +66,18 @@ object ArrowDrawing {
     isPressed: Boolean
   ) {
     val rotation = getRotationForLane(lane)
-    val arrowRadius = size * 0.44f
+    val arrowRadius = size * 0.46f
     val arrowPath = createUpArrowPath(center.x, center.y, arrowRadius)
     val laneColor = lane.defaultColor
 
     drawScope.rotate(degrees = rotation, pivot = center) {
       if (isPressed) {
         // 1. Outer Glow Aura
-        val glowRadius = arrowRadius * 1.25f
+        val glowRadius = arrowRadius * 1.24f
         val glowPath = createUpArrowPath(center.x, center.y, glowRadius)
         drawPath(
           path = glowPath,
-          color = laneColor.copy(alpha = 0.35f),
+          color = laneColor.copy(alpha = 0.38f),
           style = Fill
         )
 
@@ -93,7 +93,7 @@ object ArrowDrawing {
         val corePath = createUpArrowPath(center.x, center.y, coreRadius)
         drawPath(
           path = corePath,
-          color = Color.White.copy(alpha = 0.85f),
+          color = Color.White.copy(alpha = 0.88f),
           style = Fill
         )
 
@@ -101,35 +101,35 @@ object ArrowDrawing {
         drawPath(
           path = arrowPath,
           color = Color.White,
-          style = Stroke(width = size * 0.04f)
+          style = Stroke(width = size * 0.045f)
         )
       } else {
-        // Idle/Unpressed Receptor State (Translucent target silhouette)
+        // Idle/Unpressed Receptor State (High-contrast target silhouette readable from standing distance)
         // 1. Semi-translucent dark glass backdrop
         drawPath(
           path = arrowPath,
-          color = laneColor.copy(alpha = 0.14f),
+          color = laneColor.copy(alpha = 0.18f),
           style = Fill
         )
 
-        // 2. Secondary accent stroke
+        // 2. Colored inner rim stroke
         drawPath(
           path = arrowPath,
-          color = laneColor.copy(alpha = 0.45f),
-          style = Stroke(width = size * 0.05f)
+          color = laneColor.copy(alpha = 0.62f),
+          style = Stroke(width = size * 0.058f)
         )
 
-        // 3. Crisp outer silhouette outline
+        // 3. Crisp outer metallic outline
         drawPath(
           path = arrowPath,
-          color = Color(0xFF94A3B8),
-          style = Stroke(width = size * 0.025f)
+          color = Color(0xFFCBD5E1),
+          style = Stroke(width = size * 0.026f)
         )
 
-        // 4. Center directional dot
+        // 4. Center alignment dot
         drawCircle(
-          color = laneColor.copy(alpha = 0.6f),
-          radius = arrowRadius * 0.12f,
+          color = laneColor.copy(alpha = 0.72f),
+          radius = arrowRadius * 0.13f,
           center = center
         )
       }
@@ -149,7 +149,7 @@ object ArrowDrawing {
     isMissed: Boolean = false
   ) {
     val rotation = getRotationForLane(lane)
-    val arrowRadius = size * 0.44f
+    val arrowRadius = size * 0.46f
     val arrowPath = createUpArrowPath(center.x, center.y, arrowRadius)
     val baseColor = if (isMissed) Color(0xFFEF4444) else lane.defaultColor
     val alphaMultiplier = if (isMissed) 0.38f else 1.0f
@@ -157,10 +157,10 @@ object ArrowDrawing {
     drawScope.rotate(degrees = rotation, pivot = center) {
       // 1. Subtle outer bloom around approaching note
       if (!isMissed) {
-        val haloPath = createUpArrowPath(center.x, center.y, arrowRadius * 1.14f)
+        val haloPath = createUpArrowPath(center.x, center.y, arrowRadius * 1.15f)
         drawPath(
           path = haloPath,
-          color = baseColor.copy(alpha = 0.25f),
+          color = baseColor.copy(alpha = 0.28f),
           style = Fill
         )
       }
@@ -168,7 +168,7 @@ object ArrowDrawing {
       // 2. Solid high-contrast note fill
       drawPath(
         path = arrowPath,
-        color = baseColor.copy(alpha = 0.94f * alphaMultiplier),
+        color = baseColor.copy(alpha = 0.96f * alphaMultiplier),
         style = Fill
       )
 
@@ -176,22 +176,22 @@ object ArrowDrawing {
       val innerPath = createUpArrowPath(center.x, center.y, arrowRadius * 0.64f)
       drawPath(
         path = innerPath,
-        color = Color.White.copy(alpha = 0.55f * alphaMultiplier),
+        color = Color.White.copy(alpha = 0.60f * alphaMultiplier),
         style = Fill
       )
 
       // 4. Crisp outer white border
       drawPath(
         path = arrowPath,
-        color = Color.White.copy(alpha = 0.95f * alphaMultiplier),
-        style = Stroke(width = size * 0.042f)
+        color = Color.White.copy(alpha = 0.96f * alphaMultiplier),
+        style = Stroke(width = size * 0.046f)
       )
 
       // 5. Inner dark contrast contour line
       drawPath(
         path = innerPath,
-        color = Color(0xFF090D16).copy(alpha = 0.55f * alphaMultiplier),
-        style = Stroke(width = size * 0.02f)
+        color = Color(0xFF060911).copy(alpha = 0.60f * alphaMultiplier),
+        style = Stroke(width = size * 0.022f)
       )
     }
   }
@@ -213,32 +213,33 @@ object ArrowDrawing {
     val scale = 1.0f + (clamped * 0.55f)
     val burstColor = judgment.color
     val rotation = getRotationForLane(lane)
-    val arrowRadius = size * 0.44f * scale
+    val arrowRadius = size * 0.46f * scale
     val burstPath = createUpArrowPath(center.x, center.y, arrowRadius)
 
     drawScope.rotate(degrees = rotation, pivot = center) {
       drawPath(
         path = burstPath,
-        color = burstColor.copy(alpha = 0.42f * alpha),
+        color = burstColor.copy(alpha = 0.45f * alpha),
         style = Fill
       )
       drawPath(
         path = burstPath,
-        color = Color.White.copy(alpha = 0.90f * alpha),
+        color = Color.White.copy(alpha = 0.92f * alpha),
         style = Stroke(width = size * 0.055f * (1f - clamped * 0.5f))
       )
     }
 
     drawScope.drawCircle(
-      color = burstColor.copy(alpha = 0.50f * alpha),
-      radius = size * 0.52f * scale,
+      color = burstColor.copy(alpha = 0.55f * alpha),
+      radius = size * 0.54f * scale,
       center = center,
-      style = Stroke(width = 4f * alpha)
+      style = Stroke(width = 4.5f * alpha)
     )
   }
 
   /**
-   * Draws the vertical lane background and the laser light beam when the lane is pressed.
+   * Draws the vertical lane track, center guide line, clear lane separators,
+   * and the laser light beam when the lane is pressed.
    */
   fun drawLaneTrack(
     drawScope: DrawScope,
@@ -250,35 +251,45 @@ object ArrowDrawing {
     isPressed: Boolean
   ) {
     val laneColor = lane.defaultColor
+    val laneCenterX = laneLeft + (laneWidth / 2f)
 
-    // Subtle dark lane background
+    // Deep dark highway lane background (alternating subtle tint for clear column distinction)
+    val laneTint = if (lane.ordinal % 2 == 0) Color(0xFF050811) else Color(0xFF070C18)
     drawScope.drawRect(
-      color = Color(0x28111827),
+      color = laneTint,
       topLeft = Offset(laneLeft, 0f),
       size = Size(laneWidth, laneHeight)
     )
 
-    // Lane separator lines
+    // Subtle center-of-lane guide line
     drawScope.drawLine(
-      color = Color(0x44334155),
+      color = laneColor.copy(alpha = 0.10f),
+      start = Offset(laneCenterX, receptorY),
+      end = Offset(laneCenterX, laneHeight),
+      strokeWidth = 1f
+    )
+
+    // Clear vertical lane separator lines
+    drawScope.drawLine(
+      color = Color(0x77334155),
       start = Offset(laneLeft, 0f),
       end = Offset(laneLeft, laneHeight),
-      strokeWidth = 1.5f
+      strokeWidth = 2f
     )
     drawScope.drawLine(
-      color = Color(0x44334155),
+      color = Color(0x77334155),
       start = Offset(laneLeft + laneWidth, 0f),
       end = Offset(laneLeft + laneWidth, laneHeight),
-      strokeWidth = 1.5f
+      strokeWidth = 2f
     )
 
     // Pressed Laser Beam
     if (isPressed) {
       val beamBrush = Brush.verticalGradient(
         colors = listOf(
-          laneColor.copy(alpha = 0.42f),
-          laneColor.copy(alpha = 0.20f),
-          laneColor.copy(alpha = 0.05f),
+          laneColor.copy(alpha = 0.45f),
+          laneColor.copy(alpha = 0.22f),
+          laneColor.copy(alpha = 0.06f),
           Color.Transparent
         ),
         startY = receptorY,
@@ -286,20 +297,20 @@ object ArrowDrawing {
       )
       drawScope.drawRect(
         brush = beamBrush,
-        topLeft = Offset(laneLeft + 2f, receptorY - 30f),
-        size = Size(laneWidth - 4f, laneHeight - receptorY + 30f)
+        topLeft = Offset(laneLeft + 2f, receptorY - 36f),
+        size = Size(laneWidth - 4f, laneHeight - receptorY + 36f)
       )
 
-      // Accent border glow on lane boundaries
+      // Accent border glow on active lane boundaries
       drawScope.drawLine(
-        color = laneColor.copy(alpha = 0.7f),
-        start = Offset(laneLeft, receptorY - 30f),
+        color = laneColor.copy(alpha = 0.78f),
+        start = Offset(laneLeft, receptorY - 36f),
         end = Offset(laneLeft, laneHeight),
         strokeWidth = 3f
       )
       drawScope.drawLine(
-        color = laneColor.copy(alpha = 0.7f),
-        start = Offset(laneLeft + laneWidth, receptorY - 30f),
+        color = laneColor.copy(alpha = 0.78f),
+        start = Offset(laneLeft + laneWidth, receptorY - 36f),
         end = Offset(laneLeft + laneWidth, laneHeight),
         strokeWidth = 3f
       )

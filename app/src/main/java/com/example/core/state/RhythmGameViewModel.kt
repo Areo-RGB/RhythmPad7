@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.core.gameplay.GameplayClock
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.input.ControllerManager
 import com.example.core.input.SharedPreferencesMappingStore
@@ -19,12 +20,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
- * Main ViewModel coordinating physical dance-mat input state, scrolling rhythm gameplay round state,
- * controller mappings, and debug telemetry HUD.
+ * Main ViewModel coordinating physical dance-mat input state, monotonic [GameplayClock],
+ * scrolling rhythm gameplay round state, controller mappings, and debug telemetry HUD.
  * Managed via Android ViewModel lifecycle so onCleared() cleanly unregisters hardware listeners.
  */
 class RhythmGameViewModel(
-  val controllerManager: ControllerManager
+  val controllerManager: ControllerManager,
+  val gameplayClock: GameplayClock = GameplayClock()
 ) : ViewModel() {
 
   // Live playfield input state (pressed lanes, press counters, active holders, event history)
@@ -64,6 +66,8 @@ class RhythmGameViewModel(
 
   /**
    * Unified physical controller input processing pipeline.
+   * Converts the hardware [android.view.KeyEvent.getEventTime] (stored in [GameInputEvent.timestamp])
+   * into authoritative [GameplayClock] coordinates rather than using the last rendered frame time.
    * While paused, gameplay input transitions and note judgments are strictly rejected.
    */
   fun processInputEvent(event: GameInputEvent) {
@@ -80,21 +84,27 @@ class RhythmGameViewModel(
     if (!previousPressed && nowPressed && event.isPressed) {
       val currentRound = _roundState.value
       if (currentRound.isRunning && !currentRound.isPaused && !currentRound.isCompleted) {
+        val hitGameTimeMs = if (gameplayClock.isStarted) {
+          gameplayClock.toGameplayTimeMs(event.timestamp)
+        } else {
+          currentRound.currentGameTimeMs
+        }
         _roundState.value = currentRound.onLanePressed(
           lane = event.lane,
-          inputGameTimeMs = currentRound.currentGameTimeMs
+          inputGameTimeMs = hitGameTimeMs
         )
       }
     }
   }
 
   /**
-   * Starts or restarts a fresh scrolling practice round from 0 ms.
+   * Starts or restarts a fresh scrolling practice round from 0 ms anchored to [GameplayClock].
    */
   fun startNewRound() {
     clearPressedStates()
     _inputState.value = _inputState.value.resetAll()
     _isPaused.value = false
+    gameplayClock.start()
     _roundState.value = GameplayRoundState.createNewRound(isRunning = true)
   }
 
@@ -106,21 +116,39 @@ class RhythmGameViewModel(
   }
 
   /**
-   * Advances the scrolling gameplay clock by [deltaMs] milliseconds.
+   * Synchronizes the round state directly to the authoritative monotonic [GameplayClock].
+   * Called on each display frame in GameplayScreen without accumulating frame deltas.
+   */
+  fun syncRoundClock() {
+    val current = _roundState.value
+    if (!current.isRunning || current.isPaused || current.isCompleted) return
+    val elapsedMs = gameplayClock.elapsedGameplayMs()
+    val updated = current.advanceTime(elapsedMs)
+    _roundState.value = updated
+    if (updated.isCompleted) {
+      gameplayClock.stop()
+    }
+  }
+
+  /**
+   * Advances the scrolling gameplay clock by [deltaMs] milliseconds (for deterministic tests).
    */
   fun advanceRoundBy(deltaMs: Long) {
     if (deltaMs <= 0L) return
     val current = _roundState.value
     if (!current.isRunning || current.isPaused || current.isCompleted) return
-    _roundState.value = current.advanceTime(current.currentGameTimeMs + deltaMs)
+    gameplayClock.anchorZeroForManualStep()
+    val updated = current.advanceTime(current.currentGameTimeMs + deltaMs)
+    _roundState.value = updated
   }
 
   /**
-   * Sets the round clock to an explicit [gameTimeMs] timestamp (useful for frame clock or tests).
+   * Sets the round clock to an explicit [gameTimeMs] timestamp (for deterministic tests).
    */
   fun updateRoundTimeMs(gameTimeMs: Long) {
     val current = _roundState.value
     if (!current.isRunning || current.isPaused || current.isCompleted) return
+    gameplayClock.anchorZeroForManualStep()
     _roundState.value = current.advanceTime(gameTimeMs)
   }
 
@@ -132,23 +160,30 @@ class RhythmGameViewModel(
     val currentRound = _roundState.value
     if (currentRound.isCompleted) return
 
-    val willPause = !_isPaused.value
-    _isPaused.value = willPause
-    _roundState.value = currentRound.copy(isPaused = willPause)
-    if (willPause) {
-      clearPressedStates()
+    if (_isPaused.value) {
+      resumeGame()
+    } else {
+      pauseGame()
     }
   }
 
   fun pauseGame() {
     val currentRound = _roundState.value
     if (currentRound.isCompleted || _isPaused.value) return
+    gameplayClock.pause()
+    val frozenTimeMs = if (gameplayClock.isStarted && gameplayClock.startUptimeMs > 0L) {
+      gameplayClock.elapsedGameplayMs()
+    } else {
+      currentRound.currentGameTimeMs
+    }
     _isPaused.value = true
-    _roundState.value = currentRound.copy(isPaused = true)
+    _roundState.value = currentRound.advanceTime(frozenTimeMs).copy(isPaused = true)
     clearPressedStates()
   }
 
   fun resumeGame() {
+    if (!_isPaused.value) return
+    gameplayClock.resume()
     _isPaused.value = false
     val currentRound = _roundState.value
     if (!currentRound.isCompleted) {
@@ -157,6 +192,7 @@ class RhythmGameViewModel(
   }
 
   fun stopRound() {
+    gameplayClock.stop()
     _isPaused.value = false
     clearPressedStates()
     _roundState.value = _roundState.value.copy(isRunning = false, isPaused = false)

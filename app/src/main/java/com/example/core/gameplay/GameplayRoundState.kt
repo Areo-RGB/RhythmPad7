@@ -158,9 +158,12 @@ data class GameplayRoundState(
   }
 
   /**
-   * Evaluates a physical dance-mat press in [lane] at [inputGameTimeMs].
-   * Matches the earliest PENDING note in [lane] within ±150ms.
-   * Each note can only be judged once, and a single press judges at most one note in that lane.
+   * Evaluates a physical dance-mat press in [lane] at [inputGameTimeMs] (converted from
+   * [android.view.KeyEvent.getEventTime] via [GameplayClock]).
+   *
+   * Matches the earliest note in [lane] within ±150ms that is either PENDING or was only
+   * auto-missed by a delayed frame rendered after [inputGameTimeMs].
+   * Each note can only be judged HIT once, and a single press judges at most one note in that lane.
    */
   fun onLanePressed(
     lane: GameLane,
@@ -168,17 +171,24 @@ data class GameplayRoundState(
   ): GameplayRoundState {
     if (isPaused || isCompleted) return this
 
-    // First ensure any overdue notes up to inputGameTimeMs are auto-missed
+    // First ensure any overdue notes prior to inputGameTimeMs are auto-missed
     val timeSyncedState = if (inputGameTimeMs > currentGameTimeMs) {
       advanceTime(inputGameTimeMs)
     } else {
       this
     }
 
-    // Find the earliest pending note in this lane within the ±150ms GOOD hit window
+    // Find the earliest candidate note in this lane within the ±150ms GOOD hit window.
+    // Includes PENDING notes as well as notes that were auto-missed by a frame rendered
+    // strictly after the hardware input timestamp (judgedAtMs > inputGameTimeMs).
     val candidateNote = timeSyncedState.notes
       .asSequence()
-      .filter { it.lane == lane && it.state == NoteState.PENDING }
+      .filter { note ->
+        note.lane == lane && (
+          note.state == NoteState.PENDING ||
+            (note.state == NoteState.MISSED && (note.judgedAtMs ?: Long.MAX_VALUE) > inputGameTimeMs)
+          )
+      }
       .filter { abs(inputGameTimeMs - it.hitTimeMs) <= Judgment.GOOD_WINDOW_MS }
       .minByOrNull { it.hitTimeMs }
       ?: return timeSyncedState
@@ -199,29 +209,61 @@ data class GameplayRoundState(
       }
     }
 
-    val newCombo = timeSyncedState.combo + 1
-    val newMaxCombo = maxOf(timeSyncedState.maxCombo, newCombo)
-    val newScore = timeSyncedState.score + judgment.points
-    val newExcellents = timeSyncedState.excellentCount + if (judgment == Judgment.EXCELLENT) 1 else 0
-    val newGoods = timeSyncedState.goodCount + if (judgment == Judgment.GOOD) 1 else 0
+    // Recompute exact score, counts, and combo from updated notes so even reclaimed late-frame notes stay exact
+    var runningCombo = 0
+    var computedMaxCombo = timeSyncedState.maxCombo
+    var computedScore = 0
+    var computedExcellents = 0
+    var computedGoods = 0
+    var computedMisses = 0
+
+    for (note in updatedNotes) {
+      when (note.state) {
+        NoteState.HIT -> {
+          runningCombo += 1
+          if (runningCombo > computedMaxCombo) {
+            computedMaxCombo = runningCombo
+          }
+          when (note.judgment) {
+            Judgment.EXCELLENT -> {
+              computedExcellents += 1
+              computedScore += Judgment.EXCELLENT.points
+            }
+            Judgment.GOOD -> {
+              computedGoods += 1
+              computedScore += Judgment.GOOD.points
+            }
+            else -> {}
+          }
+        }
+        NoteState.MISSED -> {
+          computedMisses += 1
+          runningCombo = 0
+        }
+        NoteState.PENDING -> {}
+      }
+    }
+
     val nextSeq = timeSyncedState.judgmentSequence + 1
+    val effectiveTriggerTime = maxOf(timeSyncedState.currentGameTimeMs, inputGameTimeMs)
 
     val newHitMap = timeSyncedState.laneLastHitTimeMs.toMutableMap().apply {
-      put(lane, inputGameTimeMs)
+      put(lane, effectiveTriggerTime)
     }
 
     return timeSyncedState.copy(
       notes = updatedNotes,
-      score = newScore,
-      combo = newCombo,
-      maxCombo = newMaxCombo,
-      excellentCount = newExcellents,
-      goodCount = newGoods,
+      score = computedScore,
+      combo = runningCombo,
+      maxCombo = computedMaxCombo,
+      excellentCount = computedExcellents,
+      goodCount = computedGoods,
+      missCount = computedMisses,
       lastJudgment = JudgmentFeedback(
         judgment = judgment,
         lane = lane,
         timingErrorMs = signedErrorMs,
-        triggeredAtGameTimeMs = inputGameTimeMs,
+        triggeredAtGameTimeMs = effectiveTriggerTime,
         sequenceId = nextSeq
       ),
       laneLastHitTimeMs = newHitMap,
