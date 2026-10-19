@@ -10,13 +10,18 @@ data class ControllerInfo(
   val vendorId: Int = 0,
   val productId: Int = 0,
   val descriptor: String = "",
-  val isDanceMat: Boolean = false
+  val isDanceMat: Boolean = false,
+  val isMicrontekProfileActive: Boolean = false
 ) {
   val hexVendorId: String
     get() = "0x" + vendorId.toString(16).padStart(4, '0').uppercase()
 
   val hexProductId: String
     get() = "0x" + productId.toString(16).padStart(4, '0').uppercase()
+
+  val isMicrontek: Boolean
+    get() = (vendorId == DANCE_MAT_VENDOR_ID && productId == DANCE_MAT_PRODUCT_ID) ||
+        name.contains("microntek", ignoreCase = true)
 
   val formattedDetails: String
     get() = if (isConnected) {
@@ -28,9 +33,10 @@ data class ControllerInfo(
   companion object {
     val DISCONNECTED = ControllerInfo()
 
-    // Generic USB Dance Mat identifiers (e.g. Mayflash, DragonRise, DDR Mat)
+    // Confirmed Microntek USB Joystick / Dance Mat identifiers
     const val DANCE_MAT_VENDOR_ID = 0x0079
     const val DANCE_MAT_PRODUCT_ID = 0x0006
+    const val CONFIRMED_CONTROLLER_NAME = "Microntek USB Joystick"
   }
 }
 

@@ -178,8 +178,8 @@ fun GameplayScreen(
       ) {
         if (inputState.isAnyLanePressed) {
           Text(
-            text = "PERFECT",
-            style = MaterialTheme.typography.headlineMedium.copy(
+            text = "INPUT DETECTED",
+            style = MaterialTheme.typography.titleLarge.copy(
               fontWeight = FontWeight.Black,
               letterSpacing = 2.sp,
               color = Color(0xFF00E5FF)

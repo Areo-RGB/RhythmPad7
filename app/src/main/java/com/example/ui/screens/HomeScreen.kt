@@ -102,7 +102,7 @@ fun HomeScreen(
               .padding(horizontal = 10.dp, vertical = 4.dp)
           ) {
             Text(
-              text = "v0.1.0 • STEP 1",
+              text = "v0.1.1 • STEP 1.1",
               style = MaterialTheme.typography.labelSmall.copy(
                 color = Color(0xFF38BDF8),
                 fontWeight = FontWeight.Bold,

@@ -2,6 +2,7 @@ package com.example.core.input
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.view.KeyEvent
 import com.example.core.model.ControllerMapping
 import com.example.core.model.GameLane
 import com.example.core.model.InputBinding
@@ -17,14 +18,32 @@ class SharedPreferencesMappingStore(context: Context) : ControllerMappingStore {
     context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
   override fun loadMapping(): ControllerMapping {
-    val defaults = ControllerMapping.createDefaults()
+    val defaults = ControllerMapping.createMicrontekDefaults()
     val leftRaw = prefs.getString(KEY_LEFT, null)
     val downRaw = prefs.getString(KEY_DOWN, null)
     val upRaw = prefs.getString(KEY_UP, null)
     val rightRaw = prefs.getString(KEY_RIGHT, null)
+    val version = prefs.getInt(KEY_VERSION, 0)
 
     if (leftRaw == null || downRaw == null || upRaw == null || rightRaw == null) {
+      saveMapping(defaults)
       return defaults
+    }
+
+    // Migration logic: Check if stored mapping is the v0.1.0 generic default
+    // (which used DPAD_LEFT or AXIS_HAT instead of the confirmed BUTTON_1..4).
+    if (version < 2) {
+      val isOldGenericDefault = (leftRaw.contains("KEYCODE_DPAD_LEFT") || leftRaw.contains("KEYCODE_BUTTON_X")) &&
+          !leftRaw.contains("KEYCODE_BUTTON_1")
+
+      if (isOldGenericDefault) {
+        // Safely migrate old generic defaults to confirmed Microntek defaults
+        saveMapping(defaults)
+        return defaults
+      } else {
+        // User had explicit custom mappings; mark version migrated without overwriting
+        prefs.edit().putInt(KEY_VERSION, 2).apply()
+      }
     }
 
     val leftBindings = deserializeList(leftRaw).ifEmpty { defaults.leftBindings }
@@ -46,12 +65,13 @@ class SharedPreferencesMappingStore(context: Context) : ControllerMappingStore {
       .putString(KEY_DOWN, serializeList(mapping.downBindings))
       .putString(KEY_UP, serializeList(mapping.upBindings))
       .putString(KEY_RIGHT, serializeList(mapping.rightBindings))
+      .putInt(KEY_VERSION, 2)
       .apply()
   }
 
   override fun resetToDefaults(): ControllerMapping {
     prefs.edit().clear().apply()
-    val defaults = ControllerMapping.createDefaults()
+    val defaults = ControllerMapping.createMicrontekDefaults()
     saveMapping(defaults)
     return defaults
   }
@@ -71,5 +91,6 @@ class SharedPreferencesMappingStore(context: Context) : ControllerMappingStore {
     private const val KEY_DOWN = "mapping_lane_down"
     private const val KEY_UP = "mapping_lane_up"
     private const val KEY_RIGHT = "mapping_lane_right"
+    private const val KEY_VERSION = "mapping_profile_version"
   }
 }

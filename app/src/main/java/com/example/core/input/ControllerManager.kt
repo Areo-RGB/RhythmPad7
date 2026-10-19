@@ -21,9 +21,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Discovers controllers, handles raw hardware input (KeyEvents, MotionEvents),
- * maps buttons/axes to gameplay lanes, tracks connection state, and emits
- * normalized GameInputEvents.
+ * Discovers controllers, prioritizes the confirmed Microntek USB Joystick (VID 0x0079 PID 0x0006),
+ * enforces strict device ID filtering so unrelated keyboards/devices cannot interfere,
+ * protects Android system keys (Back, Volume) from capture or interception,
+ * and emits normalized GameInputEvents for digital BUTTON_1..4 dance mat panels.
  */
 class ControllerManager(
   private val context: Context,
@@ -32,7 +33,7 @@ class ControllerManager(
 
   private val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? InputManager
 
-  // State: Connected controller info
+  // State: Connected controller info (strictly prioritizes Microntek dance mat)
   private val _controllerInfo = MutableStateFlow(ControllerInfo.DISCONNECTED)
   val controllerInfo: StateFlow<ControllerInfo> = _controllerInfo.asStateFlow()
 
@@ -51,10 +52,7 @@ class ControllerManager(
   // Tracks currently held keycodes to eliminate duplicate ACTION_DOWN repeats
   private val pressedKeyCodes = mutableSetOf<Int>()
 
-  // Axis hysteresis tracker
-  private val axisTracker = AxisTracker(pressThreshold = 0.50f, releaseThreshold = 0.25f)
-
-  // Mapping capture state: when non-null, the next valid input will bind to this lane
+  // Mapping capture state: when non-null, the next valid input on the target controller will bind to this lane
   private val _capturingLane = MutableStateFlow<GameLane?>(null)
   val capturingLane: StateFlow<GameLane?> = _capturingLane.asStateFlow()
 
@@ -63,9 +61,14 @@ class ControllerManager(
     scanForControllers()
   }
 
+  /**
+   * Scans all connected input devices and prioritizes the confirmed Microntek USB Joystick
+   * (Vendor ID 0x0079, Product ID 0x0006) over generic gamepads or keyboards.
+   */
   fun scanForControllers() {
     val deviceIds = InputDevice.getDeviceIds()
-    var foundController: ControllerInfo? = null
+    var bestController: ControllerInfo? = null
+    var bestScore = -1
 
     for (id in deviceIds) {
       val device = InputDevice.getDevice(id) ?: continue
@@ -74,26 +77,47 @@ class ControllerManager(
       val isJoystick = (sources and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
       val isDpad = (sources and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
 
-      if (isGamepad || isJoystick || isDpad || (!device.isVirtual && (device.vendorId != 0 || device.productId != 0))) {
-        val isDanceMat = (device.vendorId == ControllerInfo.DANCE_MAT_VENDOR_ID &&
-            device.productId == ControllerInfo.DANCE_MAT_PRODUCT_ID) ||
-            device.name.contains("dance", ignoreCase = true) ||
-            device.name.contains("mat", ignoreCase = true)
+      val isGenericController = isGamepad || isJoystick || isDpad
+      val hasVendorProduct = !device.isVirtual && (device.vendorId != 0 || device.productId != 0)
 
-        foundController = ControllerInfo(
+      if (!isGenericController && !hasVendorProduct) continue
+
+      val isExactMicrontek = (device.vendorId == ControllerInfo.DANCE_MAT_VENDOR_ID &&
+          device.productId == ControllerInfo.DANCE_MAT_PRODUCT_ID)
+      val hasMicrontekName = device.name?.contains("microntek", ignoreCase = true) == true
+      val hasDanceName = device.name?.contains("dance", ignoreCase = true) == true ||
+          device.name?.contains("mat", ignoreCase = true) == true
+
+      // Ranking priorities:
+      // 100: Exact Microntek USB Joystick (0079:0006)
+      // 80: Name matches "microntek", "dance" or "mat"
+      // 50: Dedicated Gamepad
+      // 40: Dedicated Joystick
+      // 20: D-pad device
+      var score = 10
+      if (isExactMicrontek) score = 100
+      else if (hasMicrontekName || hasDanceName) score = 80
+      else if (isGamepad) score = 50
+      else if (isJoystick) score = 40
+      else if (isDpad) score = 20
+
+      if (score > bestScore) {
+        bestScore = score
+        val isMat = isExactMicrontek || hasMicrontekName || hasDanceName
+        bestController = ControllerInfo(
           isConnected = true,
           deviceId = device.id,
-          name = device.name ?: "Generic Game Controller",
+          name = device.name ?: ControllerInfo.CONFIRMED_CONTROLLER_NAME,
           vendorId = device.vendorId,
           productId = device.productId,
           descriptor = device.descriptor ?: "",
-          isDanceMat = isDanceMat
+          isDanceMat = isMat,
+          isMicrontekProfileActive = _currentMapping.value.isMicrontekProfileActive()
         )
-        break
       }
     }
 
-    _controllerInfo.value = foundController ?: ControllerInfo.DISCONNECTED
+    _controllerInfo.value = bestController ?: ControllerInfo.DISCONNECTED
   }
 
   // --- InputManager.InputDeviceListener ---
@@ -105,6 +129,7 @@ class ControllerManager(
   override fun onInputDeviceRemoved(deviceId: Int) {
     if (_controllerInfo.value.deviceId == deviceId) {
       clearAllPressedStates(InputSource.CONTROLLER)
+      _controllerInfo.value = ControllerInfo.DISCONNECTED
       scanForControllers()
     }
   }
@@ -113,29 +138,60 @@ class ControllerManager(
     scanForControllers()
   }
 
-  // --- Raw Android Event Dispatching ---
+  // --- Raw Android Event Dispatching & Device ID Filtering ---
 
   /**
    * Processes a KeyEvent from MainActivity.
-   * Returns true if the key was consumed by gameplay or capture mode.
+   * Restricts processing strictly to the designated controller device ID
+   * and ignores system keys (Back, Volume, Home).
    */
   fun dispatchKeyEvent(event: KeyEvent): Boolean {
     val keyCode = event.keyCode
     val action = event.action
 
-    // Emit raw event for live telemetry
+    // Never intercept or consume Android system keys (Back, Volume, Home, Power)
+    if (isSystemKey(keyCode)) {
+      return false
+    }
+
+    val active = _controllerInfo.value
+
+    // Device ID restriction:
+    if (active.isConnected) {
+      // Reject any event from a different device ID
+      if (event.deviceId != active.deviceId) {
+        return false
+      }
+    } else {
+      // When no controller is connected, reject non-controller hardware (e.g. general keyboards)
+      // while allowing virtual or test runners (where deviceId <= 0 or device is virtual)
+      val dev = event.device
+      if (dev != null && !dev.isVirtual && event.deviceId > 0) {
+        val sources = dev.sources
+        val isControllerSource = (sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+            (sources and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
+            (sources and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
+        if (!isControllerSource) {
+          return false
+        }
+      }
+    }
+
+    // Annotate physical button names for clear telemetry feedback
     val rawAction = if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"
+    val friendlyName = getFriendlyButtonName(keyCode)
+
     _rawInputEvents.tryEmit(
       RawInputEvent(
-        type = "KEY",
-        name = KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_"),
+        type = "BUTTON",
+        name = friendlyName,
         code = keyCode,
         action = rawAction,
         value = if (action == KeyEvent.ACTION_DOWN) 1f else 0f
       )
     )
 
-    // Handle mapping capture mode first
+    // Handle mapping capture mode (reject system keys already handled above)
     val currentCaptureLane = _capturingLane.value
     if (currentCaptureLane != null && action == KeyEvent.ACTION_DOWN) {
       val newBinding = InputBinding.Key(keyCode, KeyEvent.keyCodeToString(keyCode))
@@ -144,7 +200,6 @@ class ControllerManager(
       return true
     }
 
-    // Determine monotonic timestamp
     val timestamp = if (event.eventTime > 0) event.eventTime else SystemClock.uptimeMillis()
 
     when (action) {
@@ -162,7 +217,8 @@ class ControllerManager(
               lane = targetLane,
               isPressed = true,
               timestamp = timestamp,
-              source = InputSource.CONTROLLER
+              source = InputSource.CONTROLLER,
+              inputId = "KEY_$keyCode"
             )
           )
           return true
@@ -178,7 +234,8 @@ class ControllerManager(
               lane = targetLane,
               isPressed = false,
               timestamp = timestamp,
-              source = InputSource.CONTROLLER
+              source = InputSource.CONTROLLER,
+              inputId = "KEY_$keyCode"
             )
           )
           return true
@@ -191,72 +248,45 @@ class ControllerManager(
 
   /**
    * Processes a MotionEvent (joystick or hat axes) from MainActivity.
-   * Returns true if axis input was consumed.
+   * Note: The 4 gameplay arrows are independent digital buttons (BUTTON_1..4).
+   * The CENTER sensor reports on positive AXIS_Y (> 0.5) and is monitored
+   * for telemetry without triggering gameplay arrows.
    */
   fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
-    if ((event.source and InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK &&
-      (event.source and InputDevice.SOURCE_GAMEPAD) != InputDevice.SOURCE_GAMEPAD &&
-      (event.source and InputDevice.SOURCE_DPAD) != InputDevice.SOURCE_DPAD
-    ) {
-      return false
-    }
+    val active = _controllerInfo.value
 
-    val timestamp = if (event.eventTime > 0) event.eventTime else SystemClock.uptimeMillis()
-    var handled = false
-
-    // Common axes used by D-pads and dance mats
-    val axesToCheck = intArrayOf(
-      MotionEvent.AXIS_HAT_X,
-      MotionEvent.AXIS_HAT_Y,
-      MotionEvent.AXIS_X,
-      MotionEvent.AXIS_Y
-    )
-
-    for (axis in axesToCheck) {
-      val value = event.getAxisValue(axis)
-
-      // Emit raw telemetry for significant movements
-      if (Math.abs(value) > 0.15f) {
-        _rawInputEvents.tryEmit(
-          RawInputEvent(
-            type = "AXIS",
-            name = MotionEvent.axisToString(axis).removePrefix("AXIS_"),
-            code = axis,
-            action = if (value > 0) "POS" else "NEG",
-            value = value
-          )
-        )
+    if (active.isConnected) {
+      if (event.deviceId != active.deviceId) {
+        return false
       }
-
-      // Check capture mode
-      val currentCaptureLane = _capturingLane.value
-      if (currentCaptureLane != null && Math.abs(value) >= 0.70f) {
-        val dir = if (value > 0) 1 else -1
-        val newBinding = InputBinding.Axis(axis, dir, MotionEvent.axisToString(axis))
-        applyNewBinding(currentCaptureLane, newBinding)
-        _capturingLane.value = null
-        return true
-      }
-
-      // Process axis with hysteresis
-      axisTracker.processAxis(axis, value) { checkedAxis, direction, isPressed ->
-        val binding = InputBinding.Axis(checkedAxis, direction)
-        val targetLane = _currentMapping.value.findLaneFor(binding)
-        if (targetLane != null) {
-          _gameInputEvents.tryEmit(
-            GameInputEvent(
-              lane = targetLane,
-              isPressed = isPressed,
-              timestamp = timestamp,
-              source = InputSource.CONTROLLER
-            )
-          )
-          handled = true
+    } else {
+      val dev = event.device
+      if (dev != null && !dev.isVirtual && event.deviceId > 0) {
+        val sources = dev.sources
+        val isControllerSource = (sources and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+            (sources and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK ||
+            (sources and InputDevice.SOURCE_DPAD) == InputDevice.SOURCE_DPAD
+        if (!isControllerSource) {
+          return false
         }
       }
     }
 
-    return handled
+    // Monitor CENTER panel sensor on positive AXIS_Y (> 0.5)
+    val axisY = event.getAxisValue(MotionEvent.AXIS_Y)
+    if (axisY > 0.5f) {
+      _rawInputEvents.tryEmit(
+        RawInputEvent(
+          type = "SENSOR",
+          name = "CENTER (AXIS_Y > 0.5)",
+          code = MotionEvent.AXIS_Y,
+          action = "ACTIVE",
+          value = axisY
+        )
+      )
+    }
+
+    return false
   }
 
   // --- Mapping Management ---
@@ -273,24 +303,30 @@ class ControllerManager(
     val updated = _currentMapping.value.withBindingReplaced(lane, binding)
     _currentMapping.value = updated
     mappingStore.saveMapping(updated)
+    updateMicrontekProfileStatus()
   }
 
   fun resetMappingsToDefaults(): ControllerMapping {
     val reset = mappingStore.resetToDefaults()
     _currentMapping.value = reset
+    updateMicrontekProfileStatus()
     return reset
+  }
+
+  private fun updateMicrontekProfileStatus() {
+    val current = _controllerInfo.value
+    if (current.isConnected) {
+      _controllerInfo.value = current.copy(
+        isMicrontekProfileActive = _currentMapping.value.isMicrontekProfileActive()
+      )
+    }
   }
 
   // --- State Cleanup & Focus Loss ---
 
-  /**
-   * Clears any active input states (keys, axes) to prevent stuck receptor highlights
-   * when the Activity loses focus, is paused, or a controller is disconnected.
-   */
   fun clearAllPressedStates(source: InputSource = InputSource.CONTROLLER) {
     val timestamp = SystemClock.uptimeMillis()
 
-    // Release all active keys
     if (pressedKeyCodes.isNotEmpty()) {
       for (keyCode in pressedKeyCodes.toList()) {
         val lane = findLaneForKey(keyCode)
@@ -300,28 +336,13 @@ class ControllerManager(
               lane = lane,
               isPressed = false,
               timestamp = timestamp,
-              source = source
+              source = source,
+              inputId = "KEY_$keyCode"
             )
           )
         }
       }
       pressedKeyCodes.clear()
-    }
-
-    // Release all active axes
-    axisTracker.reset { axis, direction ->
-      val binding = InputBinding.Axis(axis, direction)
-      val lane = _currentMapping.value.findLaneFor(binding)
-      if (lane != null) {
-        _gameInputEvents.tryEmit(
-          GameInputEvent(
-            lane = lane,
-            isPressed = false,
-            timestamp = timestamp,
-            source = source
-          )
-        )
-      }
     }
   }
 
@@ -340,5 +361,42 @@ class ControllerManager(
   private fun findLaneForKey(keyCode: Int): GameLane? {
     val binding = InputBinding.Key(keyCode)
     return _currentMapping.value.findLaneFor(binding)
+  }
+
+  /**
+   * System keys that should never be intercepted as controller inputs or captured during remapping.
+   */
+  private fun isSystemKey(keyCode: Int): Boolean {
+    return when (keyCode) {
+      KeyEvent.KEYCODE_BACK,
+      KeyEvent.KEYCODE_VOLUME_UP,
+      KeyEvent.KEYCODE_VOLUME_DOWN,
+      KeyEvent.KEYCODE_VOLUME_MUTE,
+      KeyEvent.KEYCODE_HOME,
+      KeyEvent.KEYCODE_APP_SWITCH,
+      KeyEvent.KEYCODE_POWER,
+      KeyEvent.KEYCODE_MENU,
+      KeyEvent.KEYCODE_NOTIFICATION -> true
+      else -> false
+    }
+  }
+
+  /**
+   * Human-friendly label for physical dance mat panels confirmed on Microntek joystick.
+   */
+  private fun getFriendlyButtonName(keyCode: Int): String {
+    return when (keyCode) {
+      KeyEvent.KEYCODE_BUTTON_1 -> "BUTTON_1 (LEFT)"
+      KeyEvent.KEYCODE_BUTTON_2 -> "BUTTON_2 (DOWN)"
+      KeyEvent.KEYCODE_BUTTON_3 -> "BUTTON_3 (UP)"
+      KeyEvent.KEYCODE_BUTTON_4 -> "BUTTON_4 (RIGHT)"
+      KeyEvent.KEYCODE_BUTTON_5 -> "BUTTON_5 (SQUARE)"
+      KeyEvent.KEYCODE_BUTTON_6 -> "BUTTON_6 (TRIANGLE)"
+      KeyEvent.KEYCODE_BUTTON_7 -> "BUTTON_7 (CROSS)"
+      KeyEvent.KEYCODE_BUTTON_8 -> "BUTTON_8 (CIRCLE)"
+      KeyEvent.KEYCODE_BUTTON_9 -> "BUTTON_9 (SELECT)"
+      KeyEvent.KEYCODE_BUTTON_10 -> "BUTTON_10 (START)"
+      else -> KeyEvent.keyCodeToString(keyCode).removePrefix("KEYCODE_")
+    }
   }
 }

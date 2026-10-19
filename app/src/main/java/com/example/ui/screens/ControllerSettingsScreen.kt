@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -24,8 +25,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
@@ -33,7 +32,6 @@ import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -41,22 +39,18 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.example.core.model.ControllerInfo
 import com.example.core.model.ControllerMapping
 import com.example.core.model.GameLane
@@ -66,8 +60,8 @@ import kotlinx.coroutines.flow.SharedFlow
 
 /**
  * Controller configuration and raw input telemetry screen.
- * Allows users to inspect detected hardware, remap directions (LEFT, DOWN, UP, RIGHT),
- * observe live input telemetry, and restore defaults.
+ * Directly identifies and prioritizes USB dance mats (VID 0x0079 PID 0x0006)
+ * and uses non-intrusive inline capture rather than a modal wizard.
  */
 @Composable
 fun ControllerSettingsScreen(
@@ -83,7 +77,10 @@ fun ControllerSettingsScreen(
   onNavigateBack: () -> Unit,
   modifier: Modifier = Modifier
 ) {
-  BackHandler(onBack = onNavigateBack)
+  BackHandler(onBack = {
+    onCancelCapture()
+    onNavigateBack()
+  })
 
   // Local buffer of recent raw hardware events
   val recentRawEvents = remember { mutableStateListOf<RawInputEvent>() }
@@ -142,7 +139,7 @@ fun ControllerSettingsScreen(
               )
             )
             Text(
-              text = "USB Dance Mat & Gamepad Configuration",
+              text = "USB Dance Mat (0079:0006 Priority) & Direct Mapping",
               style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
             )
           }
@@ -194,7 +191,7 @@ fun ControllerSettingsScreen(
           .weight(1f),
         horizontalArrangement = Arrangement.spacedBy(20.dp)
       ) {
-        // Left Column: 4 Direction Mapping Cards
+        // Left Column: 4 Direction Mapping Cards with Inline Listening
         Column(
           modifier = Modifier
             .weight(1.3f)
@@ -213,12 +210,15 @@ fun ControllerSettingsScreen(
           GameLane.entries.forEach { lane ->
             val bindings = currentMapping.bindingsFor(lane)
             val isPressed = inputState.isLanePressed(lane)
+            val isListening = capturingLane == lane
 
             MappingLaneCard(
               lane = lane,
               bindingsText = bindings.joinToString(" • ") { it.description }.ifEmpty { "Unassigned" },
               isPressed = isPressed,
-              onRemap = { onStartCapture(lane) }
+              isListening = isListening,
+              onRemap = { onStartCapture(lane) },
+              onCancel = onCancelCapture
             )
           }
         }
@@ -235,7 +235,7 @@ fun ControllerSettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             color = Color(0xFF131A26),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
           ) {
             Column(modifier = Modifier.padding(16.dp)) {
               Row(
@@ -248,7 +248,7 @@ fun ControllerSettingsScreen(
                   tint = if (controllerInfo.isConnected) Color(0xFF34D399) else Color(0xFF64748B)
                 )
                 Text(
-                  text = "DETECTED HARDWARE",
+                  text = "TARGET DANCE MAT",
                   style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF94A3B8)
@@ -277,10 +277,20 @@ fun ControllerSettingsScreen(
                 )
                 if (controllerInfo.isDanceMat) {
                   Text(
-                    text = "✓ Generic USB Dance Mat verified",
-                    style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF10B981))
+                    text = "★ USB Dance Mat Matched (0079:0006 Priority)",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                      color = Color(0xFF10B981),
+                      fontWeight = FontWeight.Bold
+                    )
                   )
                 }
+                Text(
+                  text = "Device ID: ${controllerInfo.deviceId} (Locked • Unrelated inputs rejected)",
+                  style = MaterialTheme.typography.labelSmall.copy(
+                    color = Color(0xFF64748B),
+                    fontFamily = FontFamily.Monospace
+                  )
+                )
               } else {
                 Text(
                   text = "No controller detected. Plug in your USB dance mat or gamepad.",
@@ -297,7 +307,7 @@ fun ControllerSettingsScreen(
               .weight(1f),
             shape = RoundedCornerShape(16.dp),
             color = Color(0xFF0F1522),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
           ) {
             Column(modifier = Modifier.padding(16.dp)) {
               Text(
@@ -360,70 +370,6 @@ fun ControllerSettingsScreen(
         }
       }
     }
-
-    // Capture Modal Dialog (When user clicks Remap)
-    if (capturingLane != null) {
-      Dialog(onDismissRequest = onCancelCapture) {
-        Surface(
-          shape = RoundedCornerShape(20.dp),
-          color = Color(0xFF0E1626),
-          border = androidx.compose.foundation.BorderStroke(2.dp, capturingLane.defaultColor),
-          modifier = Modifier.width(420.dp)
-        ) {
-          Column(
-            modifier = Modifier.padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-          ) {
-            Box(
-              modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(capturingLane.defaultColor.copy(alpha = 0.2f)),
-              contentAlignment = Alignment.Center
-            ) {
-              Icon(
-                imageVector = Icons.Default.SportsEsports,
-                contentDescription = null,
-                tint = capturingLane.defaultColor,
-                modifier = Modifier.size(28.dp)
-              )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-              text = "REMAPPING ${capturingLane.displayName}",
-              style = MaterialTheme.typography.titleMedium.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.sp,
-                color = capturingLane.defaultColor
-              )
-            )
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-              text = "Step on the dance-mat pad or press the gamepad button you want to bind to this direction.",
-              style = MaterialTheme.typography.bodyMedium.copy(
-                color = Color(0xFFCBD5E1),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-              )
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            OutlinedButton(
-              onClick = onCancelCapture,
-              modifier = Modifier.fillMaxWidth(),
-              shape = RoundedCornerShape(10.dp),
-              colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
-            ) {
-              Text("CANCEL")
-            }
-          }
-        }
-      }
-    }
   }
 }
 
@@ -432,18 +378,29 @@ private fun MappingLaneCard(
   lane: GameLane,
   bindingsText: String,
   isPressed: Boolean,
-  onRemap: () -> Unit
+  isListening: Boolean,
+  onRemap: () -> Unit,
+  onCancel: () -> Unit
 ) {
   val laneColor = lane.defaultColor
+
+  val cardBackground = when {
+    isListening -> Color(0xFF1E1B4B)
+    isPressed -> laneColor.copy(alpha = 0.15f)
+    else -> Color(0xFF131A26)
+  }
+
+  val cardBorder = when {
+    isListening -> BorderStroke(2.dp, Color(0xFFA855F7))
+    isPressed -> BorderStroke(2.dp, laneColor)
+    else -> BorderStroke(1.dp, Color(0xFF1E293B))
+  }
 
   Surface(
     modifier = Modifier.fillMaxWidth(),
     shape = RoundedCornerShape(14.dp),
-    color = if (isPressed) laneColor.copy(alpha = 0.15f) else Color(0xFF131A26),
-    border = androidx.compose.foundation.BorderStroke(
-      width = if (isPressed) 2.dp else 1.dp,
-      color = if (isPressed) laneColor else Color(0xFF1E293B)
-    )
+    color = cardBackground,
+    border = cardBorder
   ) {
     Row(
       modifier = Modifier
@@ -461,14 +418,14 @@ private fun MappingLaneCard(
           modifier = Modifier
             .size(42.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(if (isPressed) laneColor else Color(0xFF1E293B))
+            .background(if (isPressed || isListening) laneColor else Color(0xFF1E293B))
             .border(1.dp, laneColor, RoundedCornerShape(10.dp)),
           contentAlignment = Alignment.Center
         ) {
           Text(
             text = lane.name.take(1),
             style = MaterialTheme.typography.titleSmall.copy(
-              color = if (isPressed) Color.White else laneColor,
+              color = if (isPressed || isListening) Color.White else laneColor,
               fontWeight = FontWeight.Black
             )
           )
@@ -483,10 +440,11 @@ private fun MappingLaneCard(
             )
           )
           Text(
-            text = bindingsText,
+            text = if (isListening) "Listening on dance mat..." else bindingsText,
             style = MaterialTheme.typography.bodySmall.copy(
-              color = Color(0xFF94A3B8),
-              fontFamily = FontFamily.Monospace
+              color = if (isListening) Color(0xFFC084FC) else Color(0xFF94A3B8),
+              fontFamily = FontFamily.Monospace,
+              fontWeight = if (isListening) FontWeight.Bold else FontWeight.Normal
             )
           )
         }
@@ -496,7 +454,7 @@ private fun MappingLaneCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        if (isPressed) {
+        if (isPressed && !isListening) {
           Box(
             modifier = Modifier
               .clip(RoundedCornerShape(6.dp))
@@ -513,16 +471,27 @@ private fun MappingLaneCard(
           }
         }
 
-        Button(
-          onClick = onRemap,
-          modifier = Modifier.testTag("mapping_button_remap_${lane.name.lowercase()}"),
-          shape = RoundedCornerShape(8.dp),
-          colors = ButtonDefaults.buttonColors(
-            containerColor = Color(0xFF1E293B),
-            contentColor = Color(0xFF38BDF8)
-          )
-        ) {
-          Text("REMAP", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        if (isListening) {
+          OutlinedButton(
+            onClick = onCancel,
+            modifier = Modifier.height(36.dp),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
+          ) {
+            Text("CANCEL", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+          }
+        } else {
+          Button(
+            onClick = onRemap,
+            modifier = Modifier.testTag("mapping_button_remap_${lane.name.lowercase()}"),
+            shape = RoundedCornerShape(8.dp),
+            colors = ButtonDefaults.buttonColors(
+              containerColor = Color(0xFF1E293B),
+              contentColor = Color(0xFF38BDF8)
+            )
+          ) {
+            Text("REMAP", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+          }
         }
       }
     }

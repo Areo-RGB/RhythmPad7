@@ -37,6 +37,7 @@ import com.example.core.state.GameInputState
 /**
  * Floating telemetry HUD showing live hardware controller status, active lane states,
  * press counts, and recent input event history.
+ * Makes it effortless to verify BUTTON_1..4 to LEFT, DOWN, UP, RIGHT mappings.
  */
 @Composable
 fun DebugOverlayView(
@@ -46,8 +47,8 @@ fun DebugOverlayView(
 ) {
   Box(
     modifier = modifier
-      .width(360.dp)
-      .fillMaxHeight(0.85f)
+      .width(380.dp)
+      .fillMaxHeight(0.90f)
       .clip(RoundedCornerShape(16.dp))
       .background(Color(0xF0070B14))
       .border(1.dp, Color(0xFF334155), RoundedCornerShape(16.dp))
@@ -85,12 +86,12 @@ fun DebugOverlayView(
         }
       }
 
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       HorizontalDivider(color = Color(0xFF1E293B))
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
 
       // Controller & Source Status
-      DebugSectionTitle("CONTROLLER STATUS")
+      DebugSectionTitle("CONTROLLER HARDWARE")
       Text(
         text = if (controllerInfo.isConnected) controllerInfo.formattedDetails else "No physical USB controller connected",
         style = MaterialTheme.typography.bodySmall.copy(
@@ -98,12 +99,46 @@ fun DebugOverlayView(
           fontFamily = FontFamily.Monospace
         )
       )
-      if (controllerInfo.isDanceMat) {
+
+      if (controllerInfo.isMicrontek) {
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
-          text = "★ USB Dance Mat Profile Detected (VID 0x0079 / PID 0x0006)",
+          text = "★ Microntek USB Joystick Confirmed (VID 0079 PID 0006)",
           style = MaterialTheme.typography.labelSmall.copy(
-            color = Color(0xFFFBBF24),
-            fontWeight = FontWeight.SemiBold
+            color = Color(0xFF10B981),
+            fontWeight = FontWeight.Bold
+          )
+        )
+      }
+
+      // Profile Status Badge
+      Spacer(modifier = Modifier.height(4.dp))
+      Text(
+        text = if (controllerInfo.isMicrontekProfileActive) {
+          "PROFILE: Confirmed Microntek (BTN 1..4)"
+        } else {
+          "PROFILE: Custom Mapping"
+        },
+        style = MaterialTheme.typography.labelSmall.copy(
+          color = if (controllerInfo.isMicrontekProfileActive) Color(0xFF34D399) else Color(0xFF38BDF8),
+          fontWeight = FontWeight.SemiBold
+        )
+      )
+
+      // Confirmed button mapping cheat sheet
+      Spacer(modifier = Modifier.height(6.dp))
+      Box(
+        modifier = Modifier
+          .fillMaxWidth()
+          .background(Color(0xFF131A26), RoundedCornerShape(6.dp))
+          .padding(horizontal = 8.dp, vertical = 4.dp)
+      ) {
+        Text(
+          text = "BTN_1→LEFT • BTN_2→DOWN • BTN_3→UP • BTN_4→RIGHT",
+          style = MaterialTheme.typography.labelSmall.copy(
+            color = Color(0xFF94A3B8),
+            fontFamily = FontFamily.Monospace,
+            fontSize = 10.sp
           )
         )
       }
@@ -118,9 +153,9 @@ fun DebugOverlayView(
         )
       )
 
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       HorizontalDivider(color = Color(0xFF1E293B))
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
 
       // Live Lane States & Counters
       DebugSectionTitle("LANE STATES & COUNTERS")
@@ -132,6 +167,7 @@ fun DebugOverlayView(
           val isPressed = inputState.isLanePressed(lane)
           val count = inputState.getPressCount(lane)
           val laneColor = lane.defaultColor
+          val holders = inputState.getActiveHoldersFor(lane)
 
           Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -153,7 +189,7 @@ fun DebugOverlayView(
                 )
               )
             }
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
               text = "$count",
               style = MaterialTheme.typography.labelMedium.copy(
@@ -162,13 +198,22 @@ fun DebugOverlayView(
                 fontWeight = FontWeight.Bold
               )
             )
+            if (holders.isNotEmpty()) {
+              Text(
+                text = "${holders.size} held",
+                style = MaterialTheme.typography.labelSmall.copy(
+                  fontSize = 9.sp,
+                  color = Color(0xFF38BDF8)
+                )
+              )
+            }
           }
         }
       }
 
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
       HorizontalDivider(color = Color(0xFF1E293B))
-      Spacer(modifier = Modifier.height(10.dp))
+      Spacer(modifier = Modifier.height(8.dp))
 
       // Recent Event History (Bounded)
       DebugSectionTitle("RECENT EVENT TELEMETRY")
@@ -182,7 +227,7 @@ fun DebugOverlayView(
           modifier = Modifier.fillMaxWidth(),
           verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-          items(inputState.recentEvents.take(12)) { event ->
+          items(inputState.recentEvents.take(10)) { event ->
             Row(
               modifier = Modifier
                 .fillMaxWidth()
@@ -196,7 +241,7 @@ fun DebugOverlayView(
               verticalAlignment = Alignment.CenterVertically
             ) {
               Text(
-                text = "${event.lane.name} • ${event.actionName}",
+                text = "${event.lane.name} • ${event.actionName} (${event.inputId})",
                 style = MaterialTheme.typography.labelSmall.copy(
                   color = if (event.isPressed) event.lane.defaultColor else Color(0xFF94A3B8),
                   fontFamily = FontFamily.Monospace,
@@ -227,6 +272,6 @@ private fun DebugSectionTitle(title: String) {
       color = Color(0xFF94A3B8),
       letterSpacing = 0.5.sp
     ),
-    modifier = Modifier.padding(bottom = 4.dp)
+    modifier = Modifier.padding(bottom = 2.dp)
   )
 }

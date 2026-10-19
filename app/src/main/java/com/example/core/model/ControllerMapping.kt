@@ -73,7 +73,11 @@ sealed interface InputBinding {
 
 /**
  * Holds active bindings for each lane.
- * Multiple bindings per lane can be supported (e.g. D-Pad Left AND Button X AND Keyboard Left Arrow).
+ * Confirmed default profile maps the physical Microntek USB Joystick:
+ * BUTTON_1 -> LEFT
+ * BUTTON_2 -> DOWN
+ * BUTTON_3 -> UP
+ * BUTTON_4 -> RIGHT
  */
 data class ControllerMapping(
   val leftBindings: List<InputBinding>,
@@ -89,7 +93,6 @@ data class ControllerMapping(
   }
 
   fun withBindingReplaced(lane: GameLane, newBinding: InputBinding): ControllerMapping {
-    // Replace primary binding or set single primary binding
     val updated = listOf(newBinding)
     return when (lane) {
       GameLane.LEFT -> copy(leftBindings = updated)
@@ -118,42 +121,48 @@ data class ControllerMapping(
     return null
   }
 
+  /**
+   * Returns true if the current mapping has the confirmed physical Microntek button assignments.
+   */
+  fun isMicrontekProfileActive(): Boolean {
+    val hasBtn1 = leftBindings.any { it is InputBinding.Key && it.keyCode == KeyEvent.KEYCODE_BUTTON_1 }
+    val hasBtn2 = downBindings.any { it is InputBinding.Key && it.keyCode == KeyEvent.KEYCODE_BUTTON_2 }
+    val hasBtn3 = upBindings.any { it is InputBinding.Key && it.keyCode == KeyEvent.KEYCODE_BUTTON_3 }
+    val hasBtn4 = rightBindings.any { it is InputBinding.Key && it.keyCode == KeyEvent.KEYCODE_BUTTON_4 }
+    return hasBtn1 && hasBtn2 && hasBtn3 && hasBtn4
+  }
+
   companion object {
     /**
-     * Sensible default mappings covering standard Android gamepads, D-pads,
-     * generic USB dance mats (VID 0x0079 PID 0x0006), and physical keyboard arrows.
+     * Confirmed physical dance mat profile for Microntek USB Joystick (VID 0x0079 PID 0x0006).
+     * Exact digital button mappings:
+     * - LEFT: KEYCODE_BUTTON_1
+     * - DOWN: KEYCODE_BUTTON_2
+     * - UP: KEYCODE_BUTTON_3
+     * - RIGHT: KEYCODE_BUTTON_4
+     * Also retains keyboard fallback (D, F, J, K) for emulator development.
      */
-    fun createDefaults(): ControllerMapping {
+    fun createMicrontekDefaults(): ControllerMapping {
       return ControllerMapping(
         leftBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_DPAD_LEFT, "KEYCODE_DPAD_LEFT"),
-          InputBinding.Axis(MotionEvent.AXIS_HAT_X, -1, "AXIS_HAT_X"),
-          InputBinding.Axis(MotionEvent.AXIS_X, -1, "AXIS_X"),
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_X, "KEYCODE_BUTTON_X"),
-          InputBinding.Key(KeyEvent.KEYCODE_D, "KEYCODE_D") // Keyboard fallback
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_1, "KEYCODE_BUTTON_1"),
+          InputBinding.Key(KeyEvent.KEYCODE_D, "KEYCODE_D")
         ),
         downBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_DPAD_DOWN, "KEYCODE_DPAD_DOWN"),
-          InputBinding.Axis(MotionEvent.AXIS_HAT_Y, 1, "AXIS_HAT_Y"),
-          InputBinding.Axis(MotionEvent.AXIS_Y, 1, "AXIS_Y"),
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_A, "KEYCODE_BUTTON_A"),
-          InputBinding.Key(KeyEvent.KEYCODE_F, "KEYCODE_F") // Keyboard fallback
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_2, "KEYCODE_BUTTON_2"),
+          InputBinding.Key(KeyEvent.KEYCODE_F, "KEYCODE_F")
         ),
         upBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_DPAD_UP, "KEYCODE_DPAD_UP"),
-          InputBinding.Axis(MotionEvent.AXIS_HAT_Y, -1, "AXIS_HAT_Y"),
-          InputBinding.Axis(MotionEvent.AXIS_Y, -1, "AXIS_Y"),
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_Y, "KEYCODE_BUTTON_Y"),
-          InputBinding.Key(KeyEvent.KEYCODE_J, "KEYCODE_J") // Keyboard fallback
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_3, "KEYCODE_BUTTON_3"),
+          InputBinding.Key(KeyEvent.KEYCODE_J, "KEYCODE_J")
         ),
         rightBindings = listOf(
-          InputBinding.Key(KeyEvent.KEYCODE_DPAD_RIGHT, "KEYCODE_DPAD_RIGHT"),
-          InputBinding.Axis(MotionEvent.AXIS_HAT_X, 1, "AXIS_HAT_X"),
-          InputBinding.Axis(MotionEvent.AXIS_X, 1, "AXIS_X"),
-          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_B, "KEYCODE_BUTTON_B"),
-          InputBinding.Key(KeyEvent.KEYCODE_K, "KEYCODE_K") // Keyboard fallback
+          InputBinding.Key(KeyEvent.KEYCODE_BUTTON_4, "KEYCODE_BUTTON_4"),
+          InputBinding.Key(KeyEvent.KEYCODE_K, "KEYCODE_K")
         )
       )
     }
+
+    fun createDefaults(): ControllerMapping = createMicrontekDefaults()
   }
 }

@@ -1,9 +1,12 @@
 package com.example.core.state
 
+import android.content.Context
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.core.input.ControllerManager
+import com.example.core.input.SharedPreferencesMappingStore
 import com.example.core.model.ControllerInfo
 import com.example.core.model.ControllerMapping
 import com.example.core.model.GameInputEvent
@@ -19,12 +22,13 @@ import kotlinx.coroutines.launch
 /**
  * Main ViewModel coordinating the gameplay input state, controller management,
  * simulated inputs, and debugging UI toggles.
+ * Managed via Android ViewModel lifecycle so onCleared() cleanly unregisters hardware listeners.
  */
 class RhythmGameViewModel(
-  private val controllerManager: ControllerManager
+  val controllerManager: ControllerManager
 ) : ViewModel() {
 
-  // Live playfield state (pressed lanes, press counters, event history)
+  // Live playfield state (pressed lanes, press counters, active holders, event history)
   private val _inputState = MutableStateFlow(GameInputState())
   val inputState: StateFlow<GameInputState> = _inputState.asStateFlow()
 
@@ -44,14 +48,13 @@ class RhythmGameViewModel(
   private val _isDebugOverlayVisible = MutableStateFlow(false)
   val isDebugOverlayVisible: StateFlow<Boolean> = _isDebugOverlayVisible.asStateFlow()
 
-  private val _isSimulatedInputVisible = MutableStateFlow(true) // Visible by default for easy testing
+  private val _isSimulatedInputVisible = MutableStateFlow(true)
   val isSimulatedInputVisible: StateFlow<Boolean> = _isSimulatedInputVisible.asStateFlow()
 
   private val _isPaused = MutableStateFlow(false)
   val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
   init {
-    // Collect normalized controller events and apply them to the gameplay input state
     viewModelScope.launch {
       controllerManager.gameInputEvents.collect { event ->
         processInputEvent(event)
@@ -60,9 +63,13 @@ class RhythmGameViewModel(
   }
 
   /**
-   * Unified input processing pipeline used by both physical controllers and simulated inputs.
+   * Unified input processing pipeline.
+   * While paused, gameplay input transitions are strictly rejected.
    */
   fun processInputEvent(event: GameInputEvent) {
+    if (_isPaused.value) {
+      return
+    }
     _inputState.value = _inputState.value.applyEvent(event)
   }
 
@@ -70,11 +77,15 @@ class RhythmGameViewModel(
    * Dispatches simulated input from on-screen controls into the unified input pipeline.
    */
   fun onSimulatedInput(lane: GameLane, isPressed: Boolean) {
+    if (_isPaused.value) {
+      return
+    }
     val event = GameInputEvent(
       lane = lane,
       isPressed = isPressed,
       timestamp = SystemClock.uptimeMillis(),
-      source = InputSource.SIMULATED
+      source = InputSource.SIMULATED,
+      inputId = "SIM_${lane.name}"
     )
     processInputEvent(event)
   }
@@ -88,8 +99,9 @@ class RhythmGameViewModel(
   }
 
   fun togglePause() {
-    _isPaused.value = !_isPaused.value
-    if (_isPaused.value) {
+    val willPause = !_isPaused.value
+    _isPaused.value = willPause
+    if (willPause) {
       clearPressedStates()
     }
   }
@@ -105,6 +117,14 @@ class RhythmGameViewModel(
 
   fun resetCounters() {
     _inputState.value = _inputState.value.resetAll()
+  }
+
+  fun onActivityPaused() {
+    clearPressedStates()
+  }
+
+  fun onActivityResumed() {
+    controllerManager.scanForControllers()
   }
 
   // Controller mapping delegates
@@ -127,5 +147,15 @@ class RhythmGameViewModel(
   override fun onCleared() {
     super.onCleared()
     controllerManager.release()
+  }
+
+  class Factory(private val context: Context) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+      val appContext = context.applicationContext
+      val store = SharedPreferencesMappingStore(appContext)
+      val manager = ControllerManager(appContext, store)
+      return RhythmGameViewModel(manager) as T
+    }
   }
 }

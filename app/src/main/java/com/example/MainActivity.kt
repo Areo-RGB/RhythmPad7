@@ -1,15 +1,12 @@
 package com.example
 
-import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,8 +23,6 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.core.input.ControllerManager
-import com.example.core.input.SharedPreferencesMappingStore
 import com.example.core.state.RhythmGameViewModel
 import com.example.ui.screens.ControllerSettingsScreen
 import com.example.ui.screens.GameplayScreen
@@ -42,19 +37,15 @@ enum class AppScreen {
 
 class MainActivity : ComponentActivity() {
 
-  private lateinit var mappingStore: SharedPreferencesMappingStore
-  private lateinit var controllerManager: ControllerManager
-  private lateinit var viewModel: RhythmGameViewModel
+  // Standard Android ViewModel lifecycle ownership via viewModels delegate and Factory
+  private val viewModel: RhythmGameViewModel by viewModels {
+    RhythmGameViewModel.Factory(applicationContext)
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     hideSystemBars()
-
-    // Initialize core input and state architecture
-    mappingStore = SharedPreferencesMappingStore(this)
-    controllerManager = ControllerManager(this, mappingStore)
-    viewModel = RhythmGameViewModel(controllerManager)
 
     setContent {
       RhythmPadTheme {
@@ -68,13 +59,12 @@ class MainActivity : ComponentActivity() {
   override fun onResume() {
     super.onResume()
     hideSystemBars()
-    viewModel.scanControllers()
+    viewModel.onActivityResumed()
   }
 
   override fun onPause() {
     super.onPause()
-    // Requirement: Activity pause / focus loss must clear stuck states
-    viewModel.clearPressedStates()
+    viewModel.onActivityPaused()
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -82,15 +72,15 @@ class MainActivity : ComponentActivity() {
     if (hasFocus) {
       hideSystemBars()
     } else {
-      viewModel.clearPressedStates()
+      viewModel.onActivityPaused()
     }
   }
 
   // --- Hardware Controller Event Forwarding ---
 
   override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-    // Intercept controller key events before standard view processing
-    if (::controllerManager.isInitialized && controllerManager.dispatchKeyEvent(event)) {
+    // Intercept controller key events and restrict to target dance mat
+    if (viewModel.controllerManager.dispatchKeyEvent(event)) {
       return true
     }
     return super.dispatchKeyEvent(event)
@@ -98,7 +88,7 @@ class MainActivity : ComponentActivity() {
 
   override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
     // Intercept joystick/dance-mat axis events
-    if (::controllerManager.isInitialized && controllerManager.dispatchGenericMotionEvent(event)) {
+    if (viewModel.controllerManager.dispatchGenericMotionEvent(event)) {
       return true
     }
     return super.dispatchGenericMotionEvent(event)
