@@ -1,7 +1,10 @@
 package com.example.ui.components
 
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -22,7 +26,8 @@ import com.example.core.model.Judgment
 import com.example.core.model.NoteState
 import com.example.core.model.PracticeNote
 import com.example.core.state.GameInputState
-import com.example.ui.canvas.ArrowDrawing
+import com.example.ui.canvas.NoteSkinDrawing
+import com.example.ui.canvas.rememberNoteSkin
 
 /**
  * Pure geometry calculations for the 4-lane note highway.
@@ -64,18 +69,17 @@ object PlayfieldGeometry {
    * Standing-readable arrow diameter scaled to the lane width.
    */
   fun arrowSizePx(laneWidthPx: Float): Float {
-    return (laneWidthPx * 0.80f).coerceIn(72f, 180f)
+    return (laneWidthPx * 0.86f).coerceIn(72f, 440f)
   }
 }
 
 /**
- * Centered 4-lane vertical rhythm game note highway (LEFT | DOWN | UP | RIGHT)
- * rendered using Compose Canvas.
+ * Centered 4-lane StepMania-style note field (LEFT | DOWN | UP | RIGHT) rendered with the
+ * `dance/default` noteskin bitmaps on a Compose Canvas.
  *
- * Features a dark framed note highway, four equal-width lanes with clear separators,
- * unobstructed arrow receptors near the top, scrolling beat/measure bars,
- * upward-scrolling practice notes aligned to the exact receptor lane centers,
- * and hit burst animations.
+ * Mirrors the PC theme: a dark screen filter behind the note field, beat-pulsing grey
+ * receptors near the top, quantization-colored arrows scrolling upward to the exact
+ * receptor lane centers, receptor press flashes, and additive tap explosions.
  */
 @Composable
 fun PlayfieldView(
@@ -83,10 +87,26 @@ fun PlayfieldView(
   roundState: GameplayRoundState,
   modifier: Modifier = Modifier
 ) {
+  val skin = rememberNoteSkin()
+
+  // Per-lane press animation (ReceptorArrow NoneCommand zoom + ReceptorOverlay Press/Lift flash)
+  val pressAmounts = GameLane.entries.map { lane ->
+    animateFloatAsState(
+      targetValue = if (inputState.isLanePressed(lane)) 1f else 0f,
+      animationSpec = if (inputState.isLanePressed(lane)) snap() else tween(110),
+      label = "receptor_press_${lane.name}"
+    )
+  }
+  val flashAlphas = GameLane.entries.map { lane ->
+    animateFloatAsState(
+      targetValue = if (inputState.isLanePressed(lane)) 0.6f else 0f,
+      animationSpec = if (inputState.isLanePressed(lane)) snap() else tween(200, easing = LinearOutSlowInEasing),
+      label = "receptor_flash_${lane.name}"
+    )
+  }
+
   Box(
-    modifier = modifier
-      .fillMaxSize()
-      .background(Color(0xFF04070E)),
+    modifier = modifier.fillMaxSize(),
     contentAlignment = Alignment.Center
   ) {
     // Note: widthIn MUST precede fillMaxWidth/fillMaxHeight so Compose constrains width to 560..640.dp
@@ -103,41 +123,55 @@ fun PlayfieldView(
       val canvasWidth = size.width
       val canvasHeight = size.height
 
-      // 4 equal-width lanes
       val laneWidth = PlayfieldGeometry.laneWidth(canvasWidth)
-      // Receptors placed at 16% from the top with unobstructed headroom
       val receptorY = canvasHeight * PlayfieldGeometry.RECEPTOR_Y_FRACTION
-      // Large standing-readable arrow diameter
       val arrowSize = PlayfieldGeometry.arrowSizePx(laneWidth)
       val currentGameTimeMs = roundState.currentGameTimeMs
       val travelDurationMs = roundState.travelDurationMs
 
-      // 0. Subtle receptor target band backdrop across the 4 lanes
+      val beatsElapsed = (currentGameTimeMs - roundState.beatZeroTimeMs) * roundState.bpm / 60000f
+      val beatPhase = ((beatsElapsed % 1f) + 1f) % 1f
+
+      // 0. ScreenFilter: dark backing plate behind the note field, softened at the edges
+      drawRect(color = Color(0xD0000000), size = Size(canvasWidth, canvasHeight))
       drawRect(
-        color = Color(0x181E293B),
-        topLeft = Offset(0f, (receptorY - arrowSize * 0.56f).coerceAtLeast(0f)),
-        size = Size(canvasWidth, arrowSize * 1.12f)
+        brush = Brush.horizontalGradient(
+          0f to Color(0x66000000),
+          0.04f to Color.Transparent,
+          0.96f to Color.Transparent,
+          1f to Color(0x66000000)
+        ),
+        size = Size(canvasWidth, canvasHeight)
       )
 
-      // 1. Draw each lane track, clear separator lines, and pressed laser beam
+      // 1. Lane separators and pressed lane beams
       GameLane.entries.forEach { lane ->
-        val laneIndex = lane.ordinal
-        val laneLeft = laneIndex * laneWidth
-        val isPressed = inputState.isLanePressed(lane)
-
-        ArrowDrawing.drawLaneTrack(
-          drawScope = this,
-          lane = lane,
-          laneLeft = laneLeft,
-          laneWidth = laneWidth,
-          laneHeight = canvasHeight,
-          receptorY = receptorY,
-          isPressed = isPressed
-        )
+        val laneLeft = lane.ordinal * laneWidth
+        if (lane.ordinal > 0) {
+          drawLine(
+            color = Color(0x18FFFFFF),
+            start = Offset(laneLeft, 0f),
+            end = Offset(laneLeft, canvasHeight),
+            strokeWidth = 1.5f
+          )
+        }
+        val press = pressAmounts[lane.ordinal].value
+        if (press > 0.01f) {
+          drawRect(
+            brush = Brush.verticalGradient(
+              colors = listOf(Color(0x40FFFFFF), Color(0x10FFFFFF), Color.Transparent),
+              startY = receptorY,
+              endY = canvasHeight * 0.85f
+            ),
+            topLeft = Offset(laneLeft + laneWidth * 0.1f, receptorY),
+            size = Size(laneWidth * 0.8f, canvasHeight - receptorY),
+            alpha = press
+          )
+        }
       }
 
-      // 2. Draw scrolling beat and 4-beat measure lines across the 4-lane highway
-      for (beatIndex in 0..68) {
+      // 2. Faint scrolling measure bars
+      for (beatIndex in 0..68 step 4) {
         val beatTimeMs = PracticePatternGenerator.beatToTimeMs(
           beat = beatIndex.toDouble(),
           beatZeroTimeMs = roundState.beatZeroTimeMs,
@@ -150,49 +184,39 @@ fun PlayfieldView(
           playfieldHeight = canvasHeight,
           travelDurationMs = travelDurationMs
         )
-        if (lineY in 0f..canvasHeight) {
-          val isMeasureBar = (beatIndex % 4 == 0)
+        if (lineY in receptorY..canvasHeight) {
           drawLine(
-            color = if (isMeasureBar) Color(0x4D94A3B8) else Color(0x2264748B),
+            color = Color(0x1FFFFFFF),
             start = Offset(0f, lineY),
             end = Offset(canvasWidth, lineY),
-            strokeWidth = if (isMeasureBar) 2.4f else 1.2f
+            strokeWidth = 2f
           )
         }
       }
 
-      // 3. Horizontal receptor alignment line across the 4 lanes
-      drawLine(
-        color = Color(0x55E2E8F0),
-        start = Offset(0f, receptorY),
-        end = Offset(canvasWidth, receptorY),
-        strokeWidth = 2f
-      )
-
-      // 4. Draw fixed target receptors aligned to each lane's center
+      // 3. Receptors aligned to each lane's center
       GameLane.entries.forEach { lane ->
-        val laneCenterX = PlayfieldGeometry.laneCenterX(lane.ordinal, laneWidth)
-        val isPressed = inputState.isLanePressed(lane)
-
-        ArrowDrawing.drawReceptor(
+        NoteSkinDrawing.drawReceptor(
           drawScope = this,
+          skin = skin,
           lane = lane,
-          center = Offset(laneCenterX, receptorY),
+          center = Offset(PlayfieldGeometry.laneCenterX(lane.ordinal, laneWidth), receptorY),
           size = arrowSize,
-          isPressed = isPressed
+          beatPhase = beatPhase,
+          pressAmount = pressAmounts[lane.ordinal].value,
+          flashAlpha = flashAlphas[lane.ordinal].value
         )
       }
 
-      // 5. Draw scrolling notes (PENDING and MISSED) and HIT bursts at identical lane centers
+      // 4. Scrolling notes (pending + missed) and tap explosions at identical lane centers
       val visibleMinY = -arrowSize
       val visibleMaxY = canvasHeight + arrowSize
-      val hitBurstDurationMs = 220L
 
       for (note in roundState.notes) {
         val laneCenterX = PlayfieldGeometry.laneCenterX(note.lane.ordinal, laneWidth)
 
         when (note.state) {
-          NoteState.PENDING -> {
+          NoteState.PENDING, NoteState.MISSED -> {
             val noteY = note.calculateY(
               currentGameTimeMs = currentGameTimeMs,
               receptorY = receptorY,
@@ -200,65 +224,32 @@ fun PlayfieldView(
               travelDurationMs = travelDurationMs
             )
             if (noteY in visibleMinY..visibleMaxY) {
-              ArrowDrawing.drawScrollingNote(
+              NoteSkinDrawing.drawNote(
                 drawScope = this,
+                skin = skin,
                 lane = note.lane,
                 center = Offset(laneCenterX, noteY),
                 size = arrowSize,
-                isMissed = false
-              )
-            }
-          }
-
-          NoteState.MISSED -> {
-            val noteY = note.calculateY(
-              currentGameTimeMs = currentGameTimeMs,
-              receptorY = receptorY,
-              playfieldHeight = canvasHeight,
-              travelDurationMs = travelDurationMs
-            )
-            if (noteY in visibleMinY..visibleMaxY) {
-              ArrowDrawing.drawScrollingNote(
-                drawScope = this,
-                lane = note.lane,
-                center = Offset(laneCenterX, noteY),
-                size = arrowSize,
-                isMissed = true
+                quantFrame = NoteSkinDrawing.quantizationFrame(note.beat),
+                isMissed = note.state == NoteState.MISSED
               )
             }
           }
 
           NoteState.HIT -> {
             val judgedAt = note.judgedAtMs ?: continue
-            val elapsedSinceHit = currentGameTimeMs - judgedAt
-            if (elapsedSinceHit in 0L..hitBurstDurationMs) {
-              val progress = elapsedSinceHit.toFloat() / hitBurstDurationMs.toFloat()
-              ArrowDrawing.drawHitBurst(
-                drawScope = this,
-                lane = note.lane,
-                center = Offset(laneCenterX, receptorY),
-                size = arrowSize,
-                judgment = note.judgment ?: Judgment.GOOD,
-                progress = progress
-              )
-            }
+            NoteSkinDrawing.drawExplosion(
+              drawScope = this,
+              skin = skin,
+              lane = note.lane,
+              center = Offset(laneCenterX, receptorY),
+              size = arrowSize,
+              judgment = note.judgment ?: Judgment.GOOD,
+              elapsedMs = currentGameTimeMs - judgedAt
+            )
           }
         }
       }
-
-      // 6. Outer highway side rails to visually frame the 4-lane highway in the center zone
-      drawLine(
-        color = Color(0x8838BDF8),
-        start = Offset(1.5f, 0f),
-        end = Offset(1.5f, canvasHeight),
-        strokeWidth = 3f
-      )
-      drawLine(
-        color = Color(0x8838BDF8),
-        start = Offset(canvasWidth - 1.5f, 0f),
-        end = Offset(canvasWidth - 1.5f, canvasHeight),
-        strokeWidth = 3f
-      )
     }
   }
 }

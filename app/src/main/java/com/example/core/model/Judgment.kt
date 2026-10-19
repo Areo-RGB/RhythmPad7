@@ -16,19 +16,19 @@ enum class Judgment(
     displayName = "EXCELLENT",
     points = 100,
     windowMs = 70L,
-    color = Color(0xFF00E5FF)
+    color = Color(0xFFA0DBF1) // StepMania JudgmentLine_W1
   ),
   GOOD(
     displayName = "GOOD",
     points = 60,
     windowMs = 150L,
-    color = Color(0xFF00E676)
+    color = Color(0xFFABE39B) // StepMania JudgmentLine_W3
   ),
   MISS(
     displayName = "MISS",
     points = 0,
     windowMs = 150L,
-    color = Color(0xFFFF1744)
+    color = Color(0xFFF97E7E) // StepMania JudgmentLine_Miss
   );
 
   companion object {

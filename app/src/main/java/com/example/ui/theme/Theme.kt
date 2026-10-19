@@ -6,21 +6,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val RhythmDarkColorScheme = darkColorScheme(
-  primary = RhythmCyan,
-  onPrimary = Color(0xFF04070D),
-  primaryContainer = Color(0xFF083344),
-  onPrimaryContainer = RhythmCyan,
-  secondary = RhythmGreen,
-  onSecondary = Color(0xFF04070D),
-  tertiary = RhythmRed,
+  primary = SmPlum,
+  onPrimary = Color.White,
+  primaryContainer = SmPlumDark,
+  onPrimaryContainer = Color.White,
+  secondary = SmGold,
+  onSecondary = SmCharcoal,
+  tertiary = SmStageOrange,
   onTertiary = Color.White,
-  background = RhythmBackground,
-  onBackground = RhythmTextPrimary,
-  surface = RhythmSurface,
-  onSurface = RhythmTextPrimary,
-  surfaceVariant = RhythmSurfaceVariant,
-  onSurfaceVariant = RhythmTextSecondary,
-  outline = RhythmOutline
+  background = SmCharcoal,
+  onBackground = SmTextPrimary,
+  surface = SmCharcoal,
+  onSurface = SmTextPrimary,
+  surfaceVariant = SmCharcoalLight,
+  onSurfaceVariant = SmTextSecondary,
+  outline = SmCharcoalEdge
 )
 
 @Composable

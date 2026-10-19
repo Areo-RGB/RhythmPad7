@@ -11,6 +11,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MyApplication">
+        <!-- Android 16 ignores screenOrientation on large screens for targetSdk 36 apps;
+             opt out so the landscape-only gameplay layout stays landscape on the tablet. -->
+        <property
+            android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY"
+            android:value="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

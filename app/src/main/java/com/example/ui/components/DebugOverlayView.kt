@@ -51,8 +51,8 @@ fun DebugOverlayView(
       .width(380.dp)
       .fillMaxHeight(0.90f)
       .clip(RoundedCornerShape(16.dp))
-      .background(Color(0xF0070B14))
-      .border(1.dp, Color(0xFF334155), RoundedCornerShape(16.dp))
+      .background(Color(0xF01C1C1B))
+      .border(1.dp, Color(0x40FFFFFF), RoundedCornerShape(16.dp))
       .padding(14.dp)
       .testTag("debug_overlay_hud")
   ) {

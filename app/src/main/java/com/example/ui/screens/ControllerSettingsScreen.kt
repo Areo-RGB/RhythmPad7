@@ -1,15 +1,17 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,38 +19,29 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Restore
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalIconButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.core.model.ControllerInfo
@@ -56,10 +49,29 @@ import com.example.core.model.ControllerMapping
 import com.example.core.model.GameLane
 import com.example.core.model.RawInputEvent
 import com.example.core.state.GameInputState
+import com.example.ui.components.ChamferShape
+import com.example.ui.components.LaneArrowIcon
+import com.example.ui.components.SmBackground
+import com.example.ui.components.SmButton
+import com.example.ui.components.SmButtonStyle
+import com.example.ui.components.SmChip
+import com.example.ui.components.SmFooter
+import com.example.ui.components.SmHeader
+import com.example.ui.components.SmPanel
+import com.example.ui.components.smShadow
+import com.example.ui.theme.OpenSans
+import com.example.ui.theme.SmBeginnerMint
+import com.example.ui.theme.SmCharcoal
+import com.example.ui.theme.SmEasyGreen
+import com.example.ui.theme.SmGold
+import com.example.ui.theme.SmPlum
+import com.example.ui.theme.SmPlumLight
+import com.example.ui.theme.SmTextMuted
+import com.example.ui.theme.SmTextSecondary
 import kotlinx.coroutines.flow.SharedFlow
 
 /**
- * Controller configuration and raw input telemetry screen.
+ * Controller configuration and raw input telemetry screen (ScreenMapControllers style).
  * Directly identifies and prioritizes USB dance mats (VID 0x0079 PID 0x0006)
  * and uses non-intrusive inline capture rather than a modal wizard.
  */
@@ -94,274 +106,174 @@ fun ControllerSettingsScreen(
     }
   }
 
-  Box(
-    modifier = modifier
-      .fillMaxSize()
-      .background(Color(0xFF090E17))
-  ) {
-    Column(
-      modifier = Modifier
-        .fillMaxSize()
-        .padding(24.dp)
-    ) {
-      // Top Navigation Bar
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+  Box(modifier = modifier.fillMaxSize()) {
+    SmBackground()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+      SmHeader(
+        title = "Controller Settings",
+        subtitle = "USB dance mat (0079:0006 priority) & panel mapping",
+        icon = Icons.AutoMirrored.Filled.ArrowBack,
+        onIconClick = {
+          onCancelCapture()
+          onNavigateBack()
+        },
+        iconTestTag = "settings_button_back"
       ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          FilledTonalIconButton(
-            onClick = onNavigateBack,
-            modifier = Modifier
-              .size(44.dp)
-              .testTag("settings_button_back"),
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-              containerColor = Color(0xFF1E293B),
-              contentColor = Color(0xFFF1F5F9)
-            )
-          ) {
-            Icon(
-              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-              contentDescription = "Back"
-            )
-          }
-
-          Spacer(modifier = Modifier.width(14.dp))
-
-          Column {
-            Text(
-              text = "CONTROLLER SETTINGS",
-              style = MaterialTheme.typography.titleLarge.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 1.sp,
-                color = Color(0xFFF1F5F9)
-              )
-            )
-            Text(
-              text = "USB Dance Mat (0079:0006 Priority) & Direct Mapping",
-              style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF94A3B8))
-            )
-          }
-        }
-
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-          // Scan Hardware Button
-          OutlinedButton(
-            onClick = onScanControllers,
-            modifier = Modifier.height(42.dp),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF38BDF8))
-          ) {
-            Icon(
-              imageVector = Icons.Default.Refresh,
-              contentDescription = "Scan",
-              modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("SCAN DEVICES", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-          }
-
-          // Reset to Defaults Button
-          OutlinedButton(
-            onClick = onResetDefaults,
-            modifier = Modifier
-              .height(42.dp)
-              .testTag("settings_button_reset_defaults"),
-            shape = RoundedCornerShape(10.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFF87171))
-          ) {
-            Icon(
-              imageVector = Icons.Default.Restore,
-              contentDescription = "Reset",
-              modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text("RESTORE DEFAULTS", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-          }
-        }
+        SmButton(
+          text = "SCAN DEVICES",
+          icon = Icons.Default.Refresh,
+          style = SmButtonStyle.Dark,
+          height = 46.dp,
+          fontSize = 14,
+          onClick = onScanControllers
+        )
+        SmButton(
+          text = "RESTORE DEFAULTS",
+          icon = Icons.Default.Restore,
+          style = SmButtonStyle.Dark,
+          height = 46.dp,
+          fontSize = 14,
+          onClick = onResetDefaults,
+          modifier = Modifier.testTag("settings_button_reset_defaults")
+        )
       }
 
-      Spacer(modifier = Modifier.height(18.dp))
-
-      // Main Landscape 2-Column Split: Mappings (Left) & Telemetry / Hardware (Right)
       Row(
         modifier = Modifier
           .fillMaxWidth()
-          .weight(1f),
-        horizontalArrangement = Arrangement.spacedBy(20.dp)
+          .weight(1f)
+          .padding(horizontal = 56.dp, vertical = 18.dp),
+        horizontalArrangement = Arrangement.spacedBy(22.dp)
       ) {
-        // Left Column: 4 Direction Mapping Cards with Inline Listening
-        Column(
+        // Left Column: 4 direction option rows with inline listening
+        SmPanel(
           modifier = Modifier
             .weight(1.3f)
             .fillMaxHeight(),
-          verticalArrangement = Arrangement.spacedBy(10.dp)
+          title = "DIRECTIONAL MAPPINGS",
+          contentPadding = PaddingValues(14.dp)
         ) {
-          Text(
-            text = "DIRECTIONAL MAPPINGS",
-            style = MaterialTheme.typography.labelMedium.copy(
-              fontWeight = FontWeight.Bold,
-              color = Color(0xFF94A3B8),
-              letterSpacing = 1.sp
-            )
-          )
-
-          GameLane.entries.forEach { lane ->
-            val bindings = currentMapping.bindingsFor(lane)
-            val isPressed = inputState.isLanePressed(lane)
-            val isListening = capturingLane == lane
-
-            MappingLaneCard(
-              lane = lane,
-              bindingsText = bindings.joinToString(" • ") { it.description }.ifEmpty { "Unassigned" },
-              isPressed = isPressed,
-              isListening = isListening,
-              onRemap = { onStartCapture(lane) },
-              onCancel = onCancelCapture
-            )
+          Column(
+            modifier = Modifier.fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
+          ) {
+            GameLane.entries.forEach { lane ->
+              val bindings = currentMapping.bindingsFor(lane)
+              MappingLaneRow(
+                lane = lane,
+                bindingsText = bindings.joinToString(" • ") { it.description }.ifEmpty { "Unassigned" },
+                isPressed = inputState.isLanePressed(lane),
+                isListening = capturingLane == lane,
+                onRemap = { onStartCapture(lane) },
+                onCancel = onCancelCapture
+              )
+            }
           }
         }
 
-        // Right Column: Hardware Details & Live Telemetry Feed
+        // Right Column: Hardware details & live telemetry feed
         Column(
           modifier = Modifier
             .weight(1f)
             .fillMaxHeight(),
-          verticalArrangement = Arrangement.spacedBy(12.dp)
+          verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-          // Hardware Card
-          Surface(
+          SmPanel(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF131A26),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
-          ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-              ) {
-                Icon(
-                  imageVector = if (controllerInfo.isConnected) Icons.Default.SportsEsports else Icons.Default.Gamepad,
-                  contentDescription = null,
-                  tint = if (controllerInfo.isConnected) Color(0xFF34D399) else Color(0xFF64748B)
-                )
-                Text(
-                  text = "TARGET DANCE MAT",
-                  style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF94A3B8)
-                  )
-                )
-              }
-
-              Spacer(modifier = Modifier.height(8.dp))
-
+            title = "TARGET DANCE MAT",
+            titleTrailing = {
               Text(
-                text = controllerInfo.name,
-                style = MaterialTheme.typography.titleMedium.copy(
+                text = if (controllerInfo.isConnected) "CONNECTED" else "NOT FOUND",
+                style = TextStyle(
+                  fontFamily = OpenSans,
                   fontWeight = FontWeight.Bold,
-                  color = Color(0xFFF1F5F9)
+                  fontSize = 12.sp,
+                  letterSpacing = 1.sp,
+                  color = if (controllerInfo.isConnected) SmEasyGreen else Color(0xFFFFB4B4)
                 )
               )
-
-              if (controllerInfo.isConnected) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                  text = "Vendor ID: ${controllerInfo.hexVendorId} | Product ID: ${controllerInfo.hexProductId}",
-                  style = MaterialTheme.typography.bodySmall.copy(
-                    color = Color(0xFF38BDF8),
-                    fontFamily = FontFamily.Monospace
-                  )
-                )
+            }
+          ) {
+            Text(
+              text = controllerInfo.name.replace(Regex("\\s+"), " "),
+              style = TextStyle(
+                fontFamily = OpenSans,
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                color = Color.White
+              ),
+              maxLines = 1,
+              overflow = TextOverflow.Ellipsis
+            )
+            if (controllerInfo.isConnected) {
+              Text(
+                text = "VID ${controllerInfo.hexVendorId} • PID ${controllerInfo.hexProductId} • device ${controllerInfo.deviceId}",
+                style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SmTextSecondary)
+              )
+              Spacer(modifier = Modifier.height(8.dp))
+              Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (controllerInfo.isDanceMat) {
-                  Text(
-                    text = "★ USB Dance Mat Matched (0079:0006 Priority)",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                      color = Color(0xFF10B981),
-                      fontWeight = FontWeight.Bold
-                    )
-                  )
+                  SmChip(text = "DANCE MAT MATCHED", color = SmEasyGreen.copy(alpha = 0.85f), textColor = SmCharcoal)
                 }
-                Text(
-                  text = "Device ID: ${controllerInfo.deviceId} (Locked • Unrelated inputs rejected)",
-                  style = MaterialTheme.typography.labelSmall.copy(
-                    color = Color(0xFF64748B),
-                    fontFamily = FontFamily.Monospace
-                  )
-                )
-              } else {
-                Text(
-                  text = "No controller detected. Plug in your USB dance mat or gamepad.",
-                  style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF64748B))
-                )
+                SmChip(text = "OTHER INPUTS LOCKED", color = SmPlum)
               }
+            } else {
+              Text(
+                text = "No controller detected. Plug in your USB dance mat or gamepad.",
+                style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = SmTextMuted)
+              )
             }
           }
 
-          // Live Raw Event Monitor
-          Surface(
+          SmPanel(
             modifier = Modifier
               .fillMaxWidth()
               .weight(1f),
-            shape = RoundedCornerShape(16.dp),
-            color = Color(0xFF0F1522),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            title = "LIVE RAW INPUT",
+            contentPadding = PaddingValues(12.dp)
           ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-              Text(
-                text = "LIVE RAW INPUT TELEMETRY",
-                style = MaterialTheme.typography.labelMedium.copy(
-                  fontWeight = FontWeight.Bold,
-                  color = Color(0xFF94A3B8),
-                  letterSpacing = 0.5.sp
+            if (recentRawEvents.isEmpty()) {
+              Box(
+                modifier = Modifier
+                  .fillMaxSize()
+                  .padding(16.dp),
+                contentAlignment = Alignment.Center
+              ) {
+                Text(
+                  text = "Step on a panel or press any controller button…",
+                  style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = SmTextMuted)
                 )
-              )
-              Spacer(modifier = Modifier.height(8.dp))
-
-              if (recentRawEvents.isEmpty()) {
-                Box(
-                  modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                  contentAlignment = Alignment.Center
-                ) {
-                  Text(
-                    text = "Press any controller button or D-pad direction to test raw signals...",
-                    style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF475569))
-                  )
-                }
-              } else {
-                LazyColumn(
-                  modifier = Modifier.fillMaxSize(),
-                  verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                  items(recentRawEvents) { raw ->
-                    Row(
-                      modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFF182232), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                      horizontalArrangement = Arrangement.SpaceBetween,
-                      verticalAlignment = Alignment.CenterVertically
-                    ) {
-                      Text(
-                        text = "${raw.type}: ${raw.name} (${raw.action})",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                          fontFamily = FontFamily.Monospace,
-                          fontWeight = FontWeight.Bold,
-                          color = if (raw.action == "DOWN" || raw.value != 0f) Color(0xFF38BDF8) else Color(0xFF94A3B8)
-                        )
-                      )
-                      Text(
-                        text = "code=${raw.code}",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                          fontFamily = FontFamily.Monospace,
-                          color = Color(0xFF64748B)
-                        )
-                      )
-                    }
+              }
+            } else {
+              LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+              ) {
+                items(recentRawEvents) { raw ->
+                  val active = raw.action == "DOWN" || raw.value != 0f
+                  Row(
+                    modifier = Modifier
+                      .fillMaxWidth()
+                      .clip(ChamferShape(6.dp, pointLeft = false))
+                      .background(if (active) SmPlum.copy(alpha = 0.55f) else Color(0x22FFFFFF))
+                      .padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                  ) {
+                    Text(
+                      text = "${raw.type}: ${raw.name} (${raw.action})",
+                      style = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = if (active) Color.White else SmTextSecondary
+                      ),
+                      modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                      text = "code=${raw.code}",
+                      style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = SmTextMuted)
+                    )
                   }
                 }
               }
@@ -369,12 +281,18 @@ fun ControllerSettingsScreen(
           }
         }
       }
+
+      SmFooter(
+        text = "Tap REMAP, then step on the panel to bind it  •  Back returns to the title menu",
+        trailing = "RhythmPad7 v0.2.1"
+      )
     }
   }
 }
 
+/** Option-row style mapping entry: noteskin arrow, lane name, binding value and REMAP action. */
 @Composable
-private fun MappingLaneCard(
+private fun MappingLaneRow(
   lane: GameLane,
   bindingsText: String,
   isPressed: Boolean,
@@ -382,118 +300,85 @@ private fun MappingLaneCard(
   onRemap: () -> Unit,
   onCancel: () -> Unit
 ) {
-  val laneColor = lane.defaultColor
+  val transition = rememberInfiniteTransition(label = "listen_pulse")
+  val pulse by transition.animateFloat(
+    initialValue = 0.4f,
+    targetValue = 1f,
+    animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+    label = "listen_pulse_alpha"
+  )
+  val shape = ChamferShape(18.dp, pointLeft = true, pointRight = false)
 
-  val cardBackground = when {
-    isListening -> Color(0xFF1E1B4B)
-    isPressed -> laneColor.copy(alpha = 0.15f)
-    else -> Color(0xFF131A26)
-  }
-
-  val cardBorder = when {
-    isListening -> BorderStroke(2.dp, Color(0xFFA855F7))
-    isPressed -> BorderStroke(2.dp, laneColor)
-    else -> BorderStroke(1.dp, Color(0xFF1E293B))
-  }
-
-  Surface(
-    modifier = Modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(14.dp),
-    color = cardBackground,
-    border = cardBorder
+  Row(
+    modifier = Modifier
+      .fillMaxWidth()
+      .height(84.dp)
+      .clip(shape)
+      .background(
+        when {
+          isListening -> Brush.horizontalGradient(listOf(SmPlumLight, SmPlum.copy(alpha = 0.6f)))
+          isPressed -> Brush.horizontalGradient(listOf(SmPlum, SmPlum.copy(alpha = 0.35f)))
+          else -> Brush.horizontalGradient(listOf(Color(0x33FFFFFF), Color(0x0FFFFFFF)))
+        }
+      )
+      .border(
+        width = if (isListening) 2.dp else 1.dp,
+        color = if (isListening) Color.White.copy(alpha = pulse) else Color(0x33FFFFFF),
+        shape = shape
+      )
+      .padding(start = 26.dp, end = 14.dp),
+    verticalAlignment = Alignment.CenterVertically
   ) {
-    Row(
-      modifier = Modifier
-        .fillMaxWidth()
-        .padding(horizontal = 16.dp, vertical = 12.dp),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
-    ) {
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
-      ) {
-        // Direction Badge
-        Box(
-          modifier = Modifier
-            .size(42.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (isPressed || isListening) laneColor else Color(0xFF1E293B))
-            .border(1.dp, laneColor, RoundedCornerShape(10.dp)),
-          contentAlignment = Alignment.Center
-        ) {
-          Text(
-            text = lane.name.take(1),
-            style = MaterialTheme.typography.titleSmall.copy(
-              color = if (isPressed || isListening) Color.White else laneColor,
-              fontWeight = FontWeight.Black
-            )
-          )
-        }
+    LaneArrowIcon(lane = lane, pressed = isPressed || isListening, size = 60.dp)
 
-        Column {
-          Text(
-            text = lane.displayName,
-            style = MaterialTheme.typography.titleSmall.copy(
-              fontWeight = FontWeight.Bold,
-              color = Color(0xFFF1F5F9)
-            )
-          )
-          Text(
-            text = if (isListening) "Listening on dance mat..." else bindingsText,
-            style = MaterialTheme.typography.bodySmall.copy(
-              color = if (isListening) Color(0xFFC084FC) else Color(0xFF94A3B8),
-              fontFamily = FontFamily.Monospace,
-              fontWeight = if (isListening) FontWeight.Bold else FontWeight.Normal
-            )
-          )
-        }
-      }
+    Spacer(modifier = Modifier.width(18.dp))
 
-      Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-      ) {
-        if (isPressed && !isListening) {
-          Box(
-            modifier = Modifier
-              .clip(RoundedCornerShape(6.dp))
-              .background(laneColor)
-              .padding(horizontal = 8.dp, vertical = 4.dp)
-          ) {
-            Text(
-              text = "ACTIVE",
-              style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = FontWeight.Black,
-                color = Color.White
-              )
-            )
-          }
-        }
+    Column(modifier = Modifier.weight(1f)) {
+      Text(
+        text = lane.displayName,
+        style = TextStyle(
+          fontFamily = OpenSans,
+          fontWeight = FontWeight.ExtraBold,
+          fontSize = 20.sp,
+          letterSpacing = 1.sp,
+          color = Color.White
+        ).smShadow(1.5f)
+      )
+      Text(
+        text = if (isListening) "Listening… step on the dance mat" else bindingsText,
+        style = TextStyle(
+          fontFamily = FontFamily.Monospace,
+          fontWeight = if (isListening) FontWeight.Bold else FontWeight.Normal,
+          fontSize = 13.sp,
+          color = if (isListening) SmGold else SmTextSecondary
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+      )
+    }
 
-        if (isListening) {
-          OutlinedButton(
-            onClick = onCancel,
-            modifier = Modifier.height(36.dp),
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF94A3B8))
-          ) {
-            Text("CANCEL", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-          }
-        } else {
-          Button(
-            onClick = onRemap,
-            modifier = Modifier.testTag("mapping_button_remap_${lane.name.lowercase()}"),
-            shape = RoundedCornerShape(8.dp),
-            colors = ButtonDefaults.buttonColors(
-              containerColor = Color(0xFF1E293B),
-              contentColor = Color(0xFF38BDF8)
-            )
-          ) {
-            Text("REMAP", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-          }
-        }
-      }
+    if (isPressed && !isListening) {
+      SmChip(text = "ACTIVE", color = SmBeginnerMint, textColor = SmCharcoal)
+      Spacer(modifier = Modifier.width(10.dp))
+    }
+
+    if (isListening) {
+      SmButton(
+        text = "CANCEL",
+        style = SmButtonStyle.Dark,
+        height = 44.dp,
+        fontSize = 13,
+        onClick = onCancel
+      )
+    } else {
+      SmButton(
+        text = "REMAP",
+        style = SmButtonStyle.Plum,
+        height = 44.dp,
+        fontSize = 13,
+        onClick = onRemap,
+        modifier = Modifier.testTag("mapping_button_remap_${lane.name.lowercase()}")
+      )
     }
   }
 }
