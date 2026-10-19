@@ -14,16 +14,9 @@ The checked-in project uses Kotlin/Jetpack Compose, Android Gradle Plugin **9.1.
 - Android source namespace: `com.example` (distinct from application ID)
 - A local debug signing configuration expecting `debug.keystore`
 
-**Important known gaps in the Git checkout:** `gradlew`, `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.jar` are not currently checked in; `debug.keystore` is also local-only. Until these are addressed, this checkout alone is not a turnkey reproducible build. Do not edit the signing credentials or invent build results.
+The Gradle wrapper (`gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.jar`) is checked in and pins Gradle **9.3.1**. `debug.keystore` is still local-only: copy your Android debug key (for example `cp ~/.android/debug.keystore ./debug.keystore`) before building. Do not edit the signing credentials or invent build results.
 
-For local builds, install a compatible JDK, Android SDK **platform 36.1**, and compatible Gradle **9.3.1**. Where the executable is available:
-
-```bash
-gradle :app:assembleDebug
-gradle :app:testDebugUnitTest
-```
-
-When a complete official Gradle wrapper has been added, prefer:
+For local builds, use **JDK 21** (JDK 27 breaks AGP's `androidJdkImage` transform) and Android SDK **platform 36.1** (`sdk.dir` in `local.properties` or `ANDROID_HOME`):
 
 ```bash
 ./gradlew :app:assembleDebug
