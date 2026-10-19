@@ -102,7 +102,7 @@ fun HomeScreen(
               .padding(horizontal = 10.dp, vertical = 4.dp)
           ) {
             Text(
-              text = "v0.1.1 • STEP 1.1",
+              text = "v0.2.0 • STEP 2",
               style = MaterialTheme.typography.labelSmall.copy(
                 color = Color(0xFF38BDF8),
                 fontWeight = FontWeight.Bold,
@@ -119,7 +119,7 @@ fun HomeScreen(
               .padding(horizontal = 10.dp, vertical = 4.dp)
           ) {
             Text(
-              text = "NATIVE ANDROID FOUNDATION",
+              text = "SCROLLING GAMEPLAY + USB DANCE MAT",
               style = MaterialTheme.typography.labelSmall.copy(
                 color = Color(0xFF34D399),
                 fontWeight = FontWeight.Bold
@@ -314,7 +314,7 @@ fun HomeScreen(
               text = if (controllerInfo.isConnected) {
                 controllerInfo.formattedDetails
               } else {
-                "Connect a USB dance mat (VID 0x0079 / PID 0x0006) or gamepad, or use on-screen simulated input."
+                "Connect your physical Microntek USB Dance Mat (VID 0x0079 / PID 0x0006) via USB-C OTG."
               },
               style = MaterialTheme.typography.bodySmall.copy(
                 color = Color(0xFF64748B),

@@ -30,18 +30,19 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.core.gameplay.GameplayRoundState
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
 import com.example.core.state.GameInputState
 
 /**
  * Floating telemetry HUD showing live hardware controller status, active lane states,
- * press counts, and recent input event history.
- * Makes it effortless to verify BUTTON_1..4 to LEFT, DOWN, UP, RIGHT mappings.
+ * round timing & judgment metrics, press counts, and recent input event history.
  */
 @Composable
 fun DebugOverlayView(
   inputState: GameInputState,
+  roundState: GameplayRoundState,
   controllerInfo: ControllerInfo,
   modifier: Modifier = Modifier
 ) {
@@ -73,13 +74,13 @@ fun DebugOverlayView(
         Box(
           modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .background(if (controllerInfo.isConnected) Color(0xFF065F46) else Color(0xFF374151))
+            .background(if (controllerInfo.isConnected) Color(0xFF065F46) else Color(0xFF7F1D1D))
             .padding(horizontal = 8.dp, vertical = 3.dp)
         ) {
           Text(
-            text = if (controllerInfo.isConnected) "USB READY" else "SIM ONLY",
+            text = if (controllerInfo.isConnected) "USB READY" else "NO USB MAT",
             style = MaterialTheme.typography.labelSmall.copy(
-              color = if (controllerInfo.isConnected) Color(0xFF34D399) else Color(0xFF9CA3AF),
+              color = if (controllerInfo.isConnected) Color(0xFF34D399) else Color(0xFFFCA5A5),
               fontWeight = FontWeight.Bold
             )
           )
@@ -93,7 +94,7 @@ fun DebugOverlayView(
       // Controller & Source Status
       DebugSectionTitle("CONTROLLER HARDWARE")
       Text(
-        text = if (controllerInfo.isConnected) controllerInfo.formattedDetails else "No physical USB controller connected",
+        text = if (controllerInfo.isConnected) controllerInfo.formattedDetails else "No physical USB dance mat connected",
         style = MaterialTheme.typography.bodySmall.copy(
           color = if (controllerInfo.isConnected) Color(0xFFE2E8F0) else Color(0xFF94A3B8),
           fontFamily = FontFamily.Monospace
@@ -111,7 +112,6 @@ fun DebugOverlayView(
         )
       }
 
-      // Profile Status Badge
       Spacer(modifier = Modifier.height(4.dp))
       Text(
         text = if (controllerInfo.isMicrontekProfileActive) {
@@ -125,7 +125,6 @@ fun DebugOverlayView(
         )
       )
 
-      // Confirmed button mapping cheat sheet
       Spacer(modifier = Modifier.height(6.dp))
       Box(
         modifier = Modifier
@@ -143,13 +142,26 @@ fun DebugOverlayView(
         )
       }
 
-      Spacer(modifier = Modifier.height(6.dp))
+      Spacer(modifier = Modifier.height(8.dp))
+      HorizontalDivider(color = Color(0xFF1E293B))
+      Spacer(modifier = Modifier.height(8.dp))
+
+      // Live Chart Clock & Judgment Telemetry
+      DebugSectionTitle("CHART CLOCK & JUDGMENTS")
       Text(
-        text = "ACTIVE SOURCE: ${inputState.activeSource}",
-        style = MaterialTheme.typography.labelMedium.copy(
-          color = Color(0xFFA5B4FC),
+        text = "TIME: ${roundState.currentGameTimeMs}ms | PHASE: ${roundState.phase.name} | REM: ${roundState.pendingNotesCount}/${roundState.totalNotes}",
+        style = MaterialTheme.typography.labelSmall.copy(
+          color = Color(0xFF38BDF8),
           fontFamily = FontFamily.Monospace,
           fontWeight = FontWeight.Bold
+        )
+      )
+      Spacer(modifier = Modifier.height(2.dp))
+      Text(
+        text = "EXC: ${roundState.excellentCount} | GOOD: ${roundState.goodCount} | MISS: ${roundState.missCount}",
+        style = MaterialTheme.typography.labelSmall.copy(
+          color = Color(0xFFE2E8F0),
+          fontFamily = FontFamily.Monospace
         )
       )
 
@@ -219,7 +231,7 @@ fun DebugOverlayView(
       DebugSectionTitle("RECENT EVENT TELEMETRY")
       if (inputState.recentEvents.isEmpty()) {
         Text(
-          text = "Awaiting input events...",
+          text = "Awaiting physical dance-mat events...",
           style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF64748B))
         )
       } else {
@@ -227,7 +239,7 @@ fun DebugOverlayView(
           modifier = Modifier.fillMaxWidth(),
           verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-          items(inputState.recentEvents.take(10)) { event ->
+          items(inputState.recentEvents.take(8)) { event ->
             Row(
               modifier = Modifier
                 .fillMaxWidth()

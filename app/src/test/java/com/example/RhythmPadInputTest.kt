@@ -1,17 +1,19 @@
 package com.example
 
 import android.content.Context
-import android.view.InputDevice
 import android.view.KeyEvent
 import androidx.test.core.app.ApplicationProvider
+import com.example.core.gameplay.GameplayRoundState
+import com.example.core.gameplay.PracticePatternGenerator
 import com.example.core.input.ControllerManager
 import com.example.core.input.SharedPreferencesMappingStore
-import com.example.core.model.ControllerInfo
-import com.example.core.model.ControllerMapping
 import com.example.core.model.GameInputEvent
 import com.example.core.model.GameLane
 import com.example.core.model.InputBinding
 import com.example.core.model.InputSource
+import com.example.core.model.Judgment
+import com.example.core.model.NoteState
+import com.example.core.model.PracticeNote
 import com.example.core.state.GameInputState
 import com.example.core.state.RhythmGameViewModel
 import org.junit.Assert.assertEquals
@@ -152,38 +154,31 @@ class RhythmPadInputTest {
   fun testSecondActiveBindingCannotBeIncorrectlyReleasedByFirst() {
     var state = GameInputState()
 
-    // 1. Controller presses LEFT
+    // 1. Primary controller binding presses LEFT
     state = state.applyEvent(GameInputEvent(GameLane.LEFT, true, 100L, InputSource.CONTROLLER, "KEY_BTN1"))
     assertTrue(state.isLanePressed(GameLane.LEFT))
     assertEquals(1, state.getPressCount(GameLane.LEFT))
 
-    // 2. Simulated touch also holds LEFT
-    state = state.applyEvent(GameInputEvent(GameLane.LEFT, true, 120L, InputSource.SIMULATED, "SIM_LEFT"))
+    // 2. Secondary controller binding also holds LEFT
+    state = state.applyEvent(GameInputEvent(GameLane.LEFT, true, 120L, InputSource.CONTROLLER, "KEY_DPAD_LEFT"))
     assertTrue(state.isLanePressed(GameLane.LEFT))
     assertEquals(1, state.getPressCount(GameLane.LEFT))
 
-    // 3. Controller releases, but simulated is STILL held
+    // 3. First binding releases, but secondary binding is STILL held
     state = state.applyEvent(GameInputEvent(GameLane.LEFT, false, 150L, InputSource.CONTROLLER, "KEY_BTN1"))
-    assertTrue("Lane must stay pressed because SIM_LEFT is still held!", state.isLanePressed(GameLane.LEFT))
+    assertTrue("Lane must stay pressed because second binding is still held!", state.isLanePressed(GameLane.LEFT))
 
-    // 4. Simulated touch releases
-    state = state.applyEvent(GameInputEvent(GameLane.LEFT, false, 200L, InputSource.SIMULATED, "SIM_LEFT"))
+    // 4. Secondary binding releases
+    state = state.applyEvent(GameInputEvent(GameLane.LEFT, false, 200L, InputSource.CONTROLLER, "KEY_DPAD_LEFT"))
     assertFalse("Lane must release once all bindings release", state.isLanePressed(GameLane.LEFT))
   }
 
-  // --- 10. Unrelated devices cannot trigger the selected Microntek profile ---
+  // --- 10. Unrelated devices & system keys cannot trigger the selected Microntek profile ---
   @Test
   fun testUnrelatedDevicesCannotTriggerSelectedMicrontekProfile() {
     val store = SharedPreferencesMappingStore(context)
     val manager = ControllerManager(context, store)
 
-    // Simulate connecting Microntek USB Joystick with deviceId = 5
-    // Dispatching event from deviceId = 99 (e.g. keyboard or unrelated controller)
-    val downFromUnrelated = KeyEvent(0L, 100L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_1, 0)
-    // By default in unit test with no hardware, deviceId is 0.
-    // If manager has an active controller, deviceId mismatch returns false.
-    val handled = manager.dispatchKeyEvent(downFromUnrelated)
-    // Should be handled if device is test/default, but system keys are rejected:
     val backKey = KeyEvent(0L, 100L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK, 0)
     assertFalse("Back key must never be intercepted as controller event", manager.dispatchKeyEvent(backKey))
 
@@ -200,7 +195,6 @@ class RhythmPadInputTest {
 
     assertTrue(state.isAnyLanePressed)
 
-    // Device disconnect clears active states
     val cleared = state.clearPressedStates()
     assertFalse("All lanes must be clear on disconnect", cleared.isAnyLanePressed)
     assertEquals(1, cleared.getPressCount(GameLane.LEFT))
@@ -246,28 +240,153 @@ class RhythmPadInputTest {
     val modified = store.loadMapping().withBindingReplaced(GameLane.LEFT, customBinding)
     store.saveMapping(modified)
 
-    // Reset
     val restored = store.resetToDefaults()
     assertTrue("Reset must restore BUTTON_1 to LEFT",
       restored.leftBindings.any { it is InputBinding.Key && it.keyCode == KeyEvent.KEYCODE_BUTTON_1 })
     assertTrue("Reset must restore Microntek profile", restored.isMicrontekProfileActive())
   }
 
-  // --- 15. Existing simulated input continues working ---
+  // --- 15. Beat-to-time conversion at 120 BPM ---
   @Test
-  fun testExistingSimulatedInputContinuesWorking() {
+  fun testBeatToTimeConversionAt120Bpm() {
+    assertEquals(500.0, PracticePatternGenerator.beatDurationMs(120), 0.001)
+    assertEquals(3000L, PracticePatternGenerator.beatToTimeMs(beat = 0.0, beatZeroTimeMs = 3000L, bpm = 120))
+    assertEquals(3500L, PracticePatternGenerator.beatToTimeMs(beat = 1.0, beatZeroTimeMs = 3000L, bpm = 120))
+    assertEquals(5000L, PracticePatternGenerator.beatToTimeMs(beat = 4.0, beatZeroTimeMs = 3000L, bpm = 120))
+  }
+
+  // --- 16. Note scrolling Y position math ---
+  @Test
+  fun testNoteScrollingYPositionMath() {
+    val receptorY = 200f
+    val playfieldHeight = 1200f
+    val note = PracticeNote(id = 1, lane = GameLane.LEFT, beat = 0.0, hitTimeMs = 3000L)
+
+    // Before hitTimeMs (at 1000ms), note is below receptor (Y > receptorY)
+    val yAt1000 = note.calculateY(1000L, receptorY, playfieldHeight, 2800L)
+    assertTrue("Before hit time, noteY must be below receptorY", yAt1000 > receptorY)
+
+    // At 2000ms, note moves upward (yAt2000 < yAt1000)
+    val yAt2000 = note.calculateY(2000L, receptorY, playfieldHeight, 2800L)
+    assertTrue("Note must scroll upward as time increases", yAt2000 < yAt1000)
+    assertTrue("At 2000ms, note is still below receptorY", yAt2000 > receptorY)
+
+    // At exact hitTimeMs (3000ms), noteY == receptorY
+    val yAtHit = note.calculateY(3000L, receptorY, playfieldHeight, 2800L)
+    assertEquals("At exact hit time, noteY must align with receptorY", receptorY, yAtHit, 0.01f)
+  }
+
+  // --- 17. EXCELLENT, GOOD, and MISS judgment windows, score, and combo ---
+  @Test
+  fun testJudgmentWindowsScoreAndCombo() {
+    var round = GameplayRoundState.createNewRound(bpm = 120, beatZeroTimeMs = 3000L)
+    // First note: Beat 0.0 (3000ms) -> LEFT
+    // Second note: Beat 1.0 (3500ms) -> DOWN
+    // Third note: Beat 2.0 (4000ms) -> UP
+
+    // 1. Hit first note at 3040ms (+40ms within ±70ms EXCELLENT window)
+    round = round.advanceTime(3040L)
+    round = round.onLanePressed(GameLane.LEFT, 3040L)
+    assertEquals(1, round.excellentCount)
+    assertEquals(100, round.score)
+    assertEquals(1, round.combo)
+    assertEquals(1, round.maxCombo)
+    assertEquals(Judgment.EXCELLENT, round.lastJudgment?.judgment)
+
+    // 2. Hit second note at 3610ms (+110ms within ±150ms GOOD window)
+    round = round.advanceTime(3610L)
+    round = round.onLanePressed(GameLane.DOWN, 3610L)
+    assertEquals(1, round.goodCount)
+    assertEquals(160, round.score)
+    assertEquals(2, round.combo)
+    assertEquals(2, round.maxCombo)
+    assertEquals(Judgment.GOOD, round.lastJudgment?.judgment)
+
+    // 3. Let third note (4000ms UP) pass beyond +150ms without pressing -> auto-MISS at 4200ms
+    round = round.advanceTime(4200L)
+    assertEquals(1, round.missCount)
+    assertEquals(160, round.score)
+    assertEquals("Combo must reset to 0 on MISS", 0, round.combo)
+    assertEquals("Max combo must be preserved", 2, round.maxCombo)
+    assertEquals(Judgment.MISS, round.lastJudgment?.judgment)
+  }
+
+  // --- 18. Single note cannot be judged twice & distant notes are not hit early ---
+  @Test
+  fun testNoteJudgedOnceAndDistantNotesProtected() {
+    var round = GameplayRoundState.createNewRound(bpm = 120, beatZeroTimeMs = 3000L)
+
+    // Press LEFT way too early at 1000ms (first LEFT note is at 3000ms)
+    round = round.advanceTime(1000L)
+    round = round.onLanePressed(GameLane.LEFT, 1000L)
+    assertEquals("Distant note must not be judged at 1000ms", 0, round.judgedNotesCount)
+    assertEquals(NoteState.PENDING, round.notes.first().state)
+
+    // Now advance to 3000ms and hit first LEFT note
+    round = round.advanceTime(3000L)
+    round = round.onLanePressed(GameLane.LEFT, 3000L)
+    assertEquals(1, round.excellentCount)
+    assertEquals(NoteState.HIT, round.notes.first().state)
+
+    // Press LEFT again at 3020ms — should NOT judge the already-hit note or the next LEFT note (at 5000ms)
+    round = round.advanceTime(3020L)
+    round = round.onLanePressed(GameLane.LEFT, 3020L)
+    assertEquals("Repeated press must not double-score note", 1, round.excellentCount)
+    assertEquals(100, round.score)
+  }
+
+  // --- 19. Simultaneous 2-arrow jump (Beat 7 = 6500ms LEFT + RIGHT) ---
+  @Test
+  fun testSimultaneousTwoArrowJumpJudgesBothLanes() {
     val store = SharedPreferencesMappingStore(context)
     val manager = ControllerManager(context, store)
     val viewModel = RhythmGameViewModel(manager)
+    viewModel.startNewRound()
 
-    // Simulated press on LEFT
-    viewModel.onSimulatedInput(GameLane.LEFT, true)
-    assertTrue("Simulated input must activate LEFT", viewModel.inputState.value.isLanePressed(GameLane.LEFT))
-    assertEquals(1, viewModel.inputState.value.getPressCount(GameLane.LEFT))
+    // Beat 7.0 at 120 BPM (beatZero = 3000ms) is at 3000 + 7 * 500 = 6500ms (LEFT + RIGHT jump)
+    viewModel.updateRoundTimeMs(6500L)
 
-    // Simulated release on LEFT
-    viewModel.onSimulatedInput(GameLane.LEFT, false)
-    assertFalse("Simulated release must deactivate LEFT", viewModel.inputState.value.isLanePressed(GameLane.LEFT))
-    assertEquals(1, viewModel.inputState.value.getPressCount(GameLane.LEFT))
+    viewModel.processInputEvent(
+      GameInputEvent(GameLane.LEFT, true, 6500L, InputSource.CONTROLLER, "KEY_188")
+    )
+    viewModel.processInputEvent(
+      GameInputEvent(GameLane.RIGHT, true, 6500L, InputSource.CONTROLLER, "KEY_191")
+    )
+
+    val jumpNotes = viewModel.roundState.value.notes.filter { it.beat == 7.0 }
+    assertEquals(2, jumpNotes.size)
+    assertTrue("Both jump notes must be judged HIT", jumpNotes.all { it.state == NoteState.HIT })
+    assertEquals(2, viewModel.roundState.value.combo)
+    assertEquals(200, viewModel.roundState.value.score)
+  }
+
+  // --- 20. Pause freezes game clock and rejects controller input ---
+  @Test
+  fun testPauseFreezesClockAndRejectsInput() {
+    val store = SharedPreferencesMappingStore(context)
+    val manager = ControllerManager(context, store)
+    val viewModel = RhythmGameViewModel(manager)
+    viewModel.startNewRound()
+
+    viewModel.updateRoundTimeMs(3000L)
+    viewModel.togglePause()
+    assertTrue(viewModel.isPaused.value)
+
+    // Attempt to advance time and send physical press while paused
+    viewModel.advanceRoundBy(500L)
+    assertEquals("Clock must remain frozen at 3000ms while paused", 3000L, viewModel.roundState.value.currentGameTimeMs)
+
+    viewModel.processInputEvent(
+      GameInputEvent(GameLane.LEFT, true, 3000L, InputSource.CONTROLLER, "KEY_188")
+    )
+    assertEquals("No note may be judged while paused", 0, viewModel.roundState.value.score)
+
+    // Resume and verify input works again
+    viewModel.resumeGame()
+    assertFalse(viewModel.isPaused.value)
+    viewModel.processInputEvent(
+      GameInputEvent(GameLane.LEFT, true, 3000L, InputSource.CONTROLLER, "KEY_188")
+    )
+    assertEquals(100, viewModel.roundState.value.score)
   }
 }
