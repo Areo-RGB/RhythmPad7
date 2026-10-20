@@ -1,9 +1,16 @@
 package com.example.core.state
 
 import android.content.Context
+import android.content.res.AssetManager
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.core.audio.ExoSongAudio
+import com.example.core.audio.SongAudio
+import com.example.core.chart.Chart
+import com.example.core.chart.Song
+import com.example.core.chart.SongLibrary
 import com.example.core.gameplay.GameplayClock
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.input.ControllerManager
@@ -17,7 +24,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 /**
  * Main ViewModel coordinating physical dance-mat input state, monotonic [GameplayClock],
@@ -26,8 +36,24 @@ import kotlinx.coroutines.launch
  */
 class RhythmGameViewModel(
   val controllerManager: ControllerManager,
-  val gameplayClock: GameplayClock = GameplayClock()
+  val gameplayClock: GameplayClock = GameplayClock(),
+  private val songAudio: SongAudio? = null,
+  private val assets: AssetManager? = null
 ) : ViewModel() {
+
+  // Song library loaded from assets/songs (StepMania .ssc / .sm)
+  private val _songs = MutableStateFlow<List<Song>>(emptyList())
+  val songs: StateFlow<List<Song>> = _songs.asStateFlow()
+
+  private val _songsLoading = MutableStateFlow(assets != null)
+  val songsLoading: StateFlow<Boolean> = _songsLoading.asStateFlow()
+
+  /** The song + chart of the current round (null = built-in practice pattern). */
+  private var currentSelection: Pair<Song, Chart>? = null
+
+  // Audio ↔ GameplayClock lock state
+  private var audioStarted = false
+  private var lastAudioSyncUptimeMs = 0L
 
   // Live playfield input state (pressed lanes, press counters, active holders, event history)
   private val _inputState = MutableStateFlow(GameInputState())
@@ -57,6 +83,12 @@ class RhythmGameViewModel(
   val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
   init {
+    if (assets != null) {
+      viewModelScope.launch {
+        _songs.value = withContext(Dispatchers.IO) { SongLibrary.loadFromAssets(assets) }
+        _songsLoading.value = false
+      }
+    }
     viewModelScope.launch {
       controllerManager.gameInputEvents.collect { event ->
         processInputEvent(event)
@@ -101,18 +133,92 @@ class RhythmGameViewModel(
    * Starts or restarts a fresh scrolling practice round from 0 ms anchored to [GameplayClock].
    */
   fun startNewRound() {
-    clearPressedStates()
-    _inputState.value = _inputState.value.resetAll()
-    _isPaused.value = false
-    gameplayClock.start()
-    _roundState.value = GameplayRoundState.createNewRound(isRunning = true)
+    currentSelection = null
+    beginRound(GameplayRoundState.createNewRound(isRunning = true))
   }
 
   /**
-   * Restarts the practice round from the beginning.
+   * Starts [chart] of [song] with its music locked to the [GameplayClock].
+   */
+  fun startSongRound(song: Song, chart: Chart) {
+    currentSelection = song to chart
+    beginRound(GameplayRoundState.createSongRound(song, chart, isRunning = true))
+  }
+
+  private fun beginRound(round: GameplayRoundState) {
+    clearPressedStates()
+    _inputState.value = _inputState.value.resetAll()
+    _isPaused.value = false
+    songAudio?.stop()
+    audioStarted = false
+    round.meta.musicPath?.let { songAudio?.prepare(it) }
+    gameplayClock.start()
+    _roundState.value = round
+  }
+
+  /**
+   * Restarts the current round (practice or song) from the beginning.
    */
   fun restartRound() {
-    startNewRound()
+    val selection = currentSelection
+    if (selection != null) {
+      startSongRound(selection.first, selection.second)
+    } else {
+      startNewRound()
+    }
+  }
+
+  /** Loops the song's SAMPLESTART/SAMPLELENGTH preview on the music wheel. */
+  fun previewSong(song: Song?) {
+    val audio = songAudio ?: return
+    // Never let the wheel preview touch a gameplay song (the select screen fades out after start)
+    if (_roundState.value.isRunning) return
+    val path = song?.musicPath
+    if (path == null) {
+      audio.stopPreview()
+      return
+    }
+    audio.playPreview(
+      assetPath = path,
+      startMs = (song.sampleStartSeconds * 1000).toLong(),
+      lengthMs = (song.sampleLengthSeconds * 1000).toLong()
+    )
+  }
+
+  fun stopPreview() {
+    songAudio?.stopPreview()
+  }
+
+  /**
+   * Starts the music when the clock reaches [GameplayRoundState.musicStartMs] and then keeps the
+   * clock locked to the audible music position. Corrections move the clock anchor
+   * ([GameplayClock.nudge]); elapsed time is still derived from monotonic uptime.
+   */
+  private fun syncAudio(round: GameplayRoundState) {
+    val audio = songAudio ?: return
+    val musicStart = round.musicStartMs ?: return
+    val elapsed = gameplayClock.elapsedGameplayMs()
+    val songPos = elapsed - musicStart
+    if (!audioStarted) {
+      if (songPos >= 0L) {
+        audio.playFrom(songPos)
+        audioStarted = true
+        lastAudioSyncUptimeMs = gameplayClock.nowUptimeMs()
+      }
+      return
+    }
+    if (!audio.isPlaying) return
+    val now = gameplayClock.nowUptimeMs()
+    if (now - lastAudioSyncUptimeMs < AUDIO_SYNC_INTERVAL_MS) return
+    lastAudioSyncUptimeMs = now
+    val audioPos = audio.positionMs()
+    if (audioPos < AUDIO_SYNC_MIN_POSITION_MS) return
+    val drift = songPos - audioPos // > 0: clock ahead of the music
+    if (abs(drift) >= AUDIO_SYNC_DEADBAND_MS) Log.d(TAG, "drift=${drift}ms audio=${audioPos}ms")
+    when {
+      abs(drift) >= AUDIO_SYNC_SNAP_MS -> gameplayClock.nudge(drift)
+      abs(drift) >= AUDIO_SYNC_DEADBAND_MS -> gameplayClock.nudge(drift / 2)
+    }
   }
 
   /**
@@ -122,11 +228,14 @@ class RhythmGameViewModel(
   fun syncRoundClock() {
     val current = _roundState.value
     if (!current.isRunning || current.isPaused || current.isCompleted) return
+    if (current.isSongRound) syncAudio(current)
     val elapsedMs = gameplayClock.elapsedGameplayMs()
     val updated = current.advanceTime(elapsedMs)
     _roundState.value = updated
     if (updated.isCompleted) {
       gameplayClock.stop()
+      songAudio?.stop()
+      audioStarted = false
     }
   }
 
@@ -177,6 +286,7 @@ class RhythmGameViewModel(
       currentRound.currentGameTimeMs
     }
     _isPaused.value = true
+    if (audioStarted) songAudio?.pause()
     _roundState.value = currentRound.advanceTime(frozenTimeMs).copy(isPaused = true)
     clearPressedStates()
   }
@@ -185,6 +295,10 @@ class RhythmGameViewModel(
     if (!_isPaused.value) return
     gameplayClock.resume()
     _isPaused.value = false
+    if (audioStarted) {
+      songAudio?.resume()
+      lastAudioSyncUptimeMs = gameplayClock.nowUptimeMs()
+    }
     val currentRound = _roundState.value
     if (!currentRound.isCompleted) {
       _roundState.value = currentRound.copy(isPaused = false, isRunning = true)
@@ -193,6 +307,8 @@ class RhythmGameViewModel(
 
   fun stopRound() {
     gameplayClock.stop()
+    songAudio?.stop()
+    audioStarted = false
     _isPaused.value = false
     clearPressedStates()
     _roundState.value = _roundState.value.copy(isRunning = false, isPaused = false)
@@ -238,6 +354,15 @@ class RhythmGameViewModel(
   override fun onCleared() {
     super.onCleared()
     controllerManager.release()
+    songAudio?.release()
+  }
+
+  companion object {
+    private const val TAG = "AudioSync"
+    const val AUDIO_SYNC_INTERVAL_MS = 250L
+    const val AUDIO_SYNC_MIN_POSITION_MS = 150L
+    const val AUDIO_SYNC_DEADBAND_MS = 8L
+    const val AUDIO_SYNC_SNAP_MS = 40L
   }
 
   class Factory(private val context: Context) : ViewModelProvider.Factory {
@@ -246,7 +371,11 @@ class RhythmGameViewModel(
       val appContext = context.applicationContext
       val store = SharedPreferencesMappingStore(appContext)
       val manager = ControllerManager(appContext, store)
-      return RhythmGameViewModel(manager) as T
+      return RhythmGameViewModel(
+        controllerManager = manager,
+        songAudio = ExoSongAudio(appContext),
+        assets = appContext.assets
+      ) as T
     }
   }
 }

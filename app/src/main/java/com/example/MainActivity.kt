@@ -27,10 +27,13 @@ import com.example.core.state.RhythmGameViewModel
 import com.example.ui.screens.ControllerSettingsScreen
 import com.example.ui.screens.GameplayScreen
 import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.MusicSelectScreen
+import com.example.ui.screens.MusicSelectState
 import com.example.ui.theme.RhythmPadTheme
 
 enum class AppScreen {
   HOME,
+  MUSIC_SELECT,
   GAMEPLAY,
   SETTINGS
 }
@@ -113,6 +116,9 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
   val capturingLane by viewModel.capturingLane.collectAsStateWithLifecycle()
   val isDebugVisible by viewModel.isDebugOverlayVisible.collectAsStateWithLifecycle()
   val isPaused by viewModel.isPaused.collectAsStateWithLifecycle()
+  val songs by viewModel.songs.collectAsStateWithLifecycle()
+  val songsLoading by viewModel.songsLoading.collectAsStateWithLifecycle()
+  val musicSelectState = remember { MusicSelectState() }
 
   AnimatedContent(
     targetState = currentScreen,
@@ -125,8 +131,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           controllerInfo = controllerInfo,
           inputState = inputState,
           onStartGame = {
-            viewModel.startNewRound()
-            currentScreen = AppScreen.GAMEPLAY
+            currentScreen = AppScreen.MUSIC_SELECT
           },
           onOpenSettings = {
             currentScreen = AppScreen.SETTINGS
@@ -134,6 +139,30 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           onScanControllers = {
             viewModel.scanControllers()
           }
+        )
+      }
+
+      AppScreen.MUSIC_SELECT -> {
+        MusicSelectScreen(
+          songs = songs,
+          isLoading = songsLoading,
+          inputState = inputState,
+          onStartSong = { song, chart ->
+            viewModel.stopPreview()
+            viewModel.startSongRound(song, chart)
+            currentScreen = AppScreen.GAMEPLAY
+          },
+          onStartPractice = {
+            viewModel.stopPreview()
+            viewModel.startNewRound()
+            currentScreen = AppScreen.GAMEPLAY
+          },
+          onPreview = { song -> viewModel.previewSong(song) },
+          onNavigateBack = {
+            viewModel.stopPreview()
+            currentScreen = AppScreen.HOME
+          },
+          state = musicSelectState
         )
       }
 
@@ -161,7 +190,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           },
           onNavigateBack = {
             viewModel.stopRound()
-            currentScreen = AppScreen.HOME
+            currentScreen = AppScreen.MUSIC_SELECT
           }
         )
       }

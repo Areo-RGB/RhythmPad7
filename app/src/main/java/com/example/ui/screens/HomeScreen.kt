@@ -185,7 +185,7 @@ fun HomeScreen(
 
       SmFooter(
         text = "Step on the pad to test your panels  •  Tap GAME START to play",
-        trailing = "RhythmPad7 v0.2.1"
+        trailing = "RhythmPad7 v0.3.0"
       )
     }
   }

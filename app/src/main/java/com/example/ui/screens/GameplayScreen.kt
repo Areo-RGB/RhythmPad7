@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -47,6 +48,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -60,6 +62,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.core.chart.Difficulty
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
@@ -77,6 +80,7 @@ import com.example.ui.components.SmChip
 import com.example.ui.components.SmIconButton
 import com.example.ui.components.SmMeterBar
 import com.example.ui.components.SmPanel
+import com.example.ui.components.rememberAssetBitmap
 import com.example.ui.components.smShadow
 import com.example.ui.theme.OpenSans
 import com.example.ui.theme.SmBeginnerMint
@@ -154,7 +158,20 @@ fun GameplayScreen(
   ) {
     val highwayWidthDp = PlayfieldGeometry.calculateHighwayWidthDp(maxWidth.value).dp
 
-    SmBackground(animated = false, dim = 0.62f)
+    val songBackground by rememberAssetBitmap(roundState.meta.backgroundPath)
+    val bg = songBackground
+    if (bg != null) {
+      // Song background, dimmed like StepMania's BGBrightness / ScreenFilter
+      Image(
+        bitmap = bg,
+        contentDescription = null,
+        contentScale = ContentScale.Crop,
+        modifier = Modifier.fillMaxSize()
+      )
+      Box(modifier = Modifier.fillMaxSize().background(Color(0x99000000)))
+    } else {
+      SmBackground(animated = false, dim = 0.62f)
+    }
 
     // Three-Zone Landscape Layout: [ Left HUD Wing | Centered 4-Lane Note Field | Right Score & Controls Wing ]
     Row(
@@ -185,7 +202,10 @@ fun GameplayScreen(
             onClick = onNavigateBack,
             modifier = Modifier.testTag("gameplay_button_back")
           )
-          SmChip(text = "PRACTICE STAGE", color = SmStageOrange)
+          SmChip(
+            text = if (roundState.isSongRound) "EVENT STAGE" else "PRACTICE STAGE",
+            color = SmStageOrange
+          )
         }
 
         SongInfoPanel(roundState = roundState)
@@ -337,7 +357,7 @@ private fun SongInfoPanel(roundState: GameplayRoundState) {
     }
   ) {
     Text(
-      text = "StepMania Pad Foundation #1",
+      text = roundState.meta.title,
       style = TextStyle(
         fontFamily = OpenSans,
         fontWeight = FontWeight.Bold,
@@ -348,7 +368,7 @@ private fun SongInfoPanel(roundState: GameplayRoundState) {
       overflow = TextOverflow.Ellipsis
     )
     Text(
-      text = "RhythmPad7 Practice",
+      text = roundState.meta.artist,
       style = TextStyle(
         fontFamily = OpenSans,
         fontWeight = FontWeight.SemiBold,
@@ -373,7 +393,7 @@ private fun SongInfoPanel(roundState: GameplayRoundState) {
           )
         )
         Text(
-          text = "${roundState.bpm}",
+          text = roundState.meta.bpmLabel,
           style = NumberStyle.copy(fontSize = 30.sp, color = Color.White)
         )
       }
@@ -382,12 +402,12 @@ private fun SongInfoPanel(roundState: GameplayRoundState) {
       Row(
         modifier = Modifier
           .clip(ChamferShape(10.dp, pointLeft = false))
-          .background(SmBeginnerMint)
+          .background(Difficulty.entries[roundState.meta.difficultyIndex].color())
           .padding(start = 12.dp, end = 18.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
       ) {
         Text(
-          text = "BEGINNER",
+          text = roundState.meta.difficultyName.uppercase(Locale.US),
           style = TextStyle(
             fontFamily = OpenSans,
             fontWeight = FontWeight.ExtraBold,
@@ -397,7 +417,7 @@ private fun SongInfoPanel(roundState: GameplayRoundState) {
         )
         Spacer(modifier = Modifier.width(10.dp))
         Text(
-          text = "1",
+          text = "${roundState.meta.meter}",
           style = NumberStyle.copy(fontSize = 20.sp, color = SmCharcoal)
         )
       }
@@ -746,7 +766,7 @@ private fun PauseOverlay(
       )
       Spacer(modifier = Modifier.height(12.dp))
       SmButton(
-        text = "FORFEIT TO TITLE",
+        text = "FORFEIT",
         icon = Icons.Default.Home,
         style = SmButtonStyle.Dark,
         onClick = onNavigateBack,
@@ -806,7 +826,7 @@ private fun EvaluationOverlay(
           alpha = intro.value
           translationY = (1f - intro.value) * 40.dp.toPx()
         },
-      title = "RESULTS  •  StepMania Pad Foundation #1",
+      title = "RESULTS  •  ${roundState.meta.title}  •  ${roundState.meta.difficultyName} ${roundState.meta.meter}",
       contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp)
     ) {
       Row(verticalAlignment = Alignment.CenterVertically) {
@@ -882,7 +902,7 @@ private fun EvaluationOverlay(
             .testTag("summary_button_play_again")
         )
         SmButton(
-          text = "TITLE MENU",
+          text = "SELECT MUSIC",
           icon = Icons.Default.Home,
           style = SmButtonStyle.Dark,
           onClick = onNavigateBack,

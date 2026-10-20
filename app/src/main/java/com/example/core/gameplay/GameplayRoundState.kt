@@ -1,11 +1,15 @@
 package com.example.core.gameplay
 
+import com.example.core.chart.Chart
+import com.example.core.chart.Song
+import com.example.core.chart.TimingData
 import com.example.core.model.GameLane
 import com.example.core.model.Judgment
 import com.example.core.model.NoteState
 import com.example.core.model.PracticeNote
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 
 /**
  * High-level lifecycle phase of a gameplay round.
@@ -29,7 +33,25 @@ data class JudgmentFeedback(
 )
 
 /**
+ * Display metadata for the round (song info panel, evaluation header, background art).
+ */
+data class RoundMeta(
+  val title: String = "StepMania Pad Foundation #1",
+  val artist: String = "RhythmPad7 Practice",
+  val difficultyName: String = "Beginner",
+  val difficultyIndex: Int = 0,
+  val meter: Int = 1,
+  val bpmLabel: String = "${PracticePatternGenerator.DEFAULT_BPM}",
+  val backgroundPath: String? = null,
+  val musicPath: String? = null
+)
+
+/**
  * Immutable, deterministic state of a scrolling rhythm gameplay round.
+ *
+ * For song rounds, [musicStartMs] is the gameplay time at which the music file's position 0 plays
+ * and [timing] maps music seconds to beats (StepMania TimingData), so
+ * `noteHitTimeMs = musicStartMs + timing.timeAtBeat(beat) * 1000`.
  */
 data class GameplayRoundState(
   val bpm: Int = PracticePatternGenerator.DEFAULT_BPM,
@@ -51,8 +73,36 @@ data class GameplayRoundState(
   val missCount: Int = 0,
   val lastJudgment: JudgmentFeedback? = null,
   val laneLastHitTimeMs: Map<GameLane, Long> = emptyMap(),
-  val judgmentSequence: Int = 0
+  val judgmentSequence: Int = 0,
+  val meta: RoundMeta = RoundMeta(),
+  val musicStartMs: Long? = null,
+  val timing: TimingData? = null
 ) {
+  val isSongRound: Boolean
+    get() = musicStartMs != null && timing != null
+
+  /** Beat displayed at [gameTimeMs] (drives receptor pulse and measure lines). */
+  fun beatAt(gameTimeMs: Long): Double {
+    val t = timing
+    val start = musicStartMs
+    return if (t != null && start != null) {
+      t.beatAtTime((gameTimeMs - start) / 1000.0)
+    } else {
+      (gameTimeMs - beatZeroTimeMs) * bpm / 60_000.0
+    }
+  }
+
+  /** Gameplay time at which [beat] is reached. */
+  fun gameTimeAtBeat(beat: Double): Long {
+    val t = timing
+    val start = musicStartMs
+    return if (t != null && start != null) {
+      start + (t.timeAtBeat(beat) * 1000.0).roundToLong()
+    } else {
+      PracticePatternGenerator.beatToTimeMs(beat = beat, beatZeroTimeMs = beatZeroTimeMs, bpm = bpm)
+    }
+  }
+
   val totalNotes: Int
     get() = notes.size
 
@@ -273,6 +323,47 @@ data class GameplayRoundState(
 
   companion object {
     const val POST_ROUND_BUFFER_MS = 900L
+
+    /** Earliest gameplay time the first step may land on (after the Ready?/Go! countdown). */
+    const val SONG_FIRST_STEP_MIN_MS = 3_600L
+    const val SONG_MIN_LEAD_IN_MS = 1_000L
+
+    fun createSongRound(
+      song: Song,
+      chart: Chart,
+      isRunning: Boolean = true
+    ): GameplayRoundState {
+      val firstStepMs = chart.steps.minOfOrNull { (it.timeSeconds * 1000.0).roundToLong() } ?: 0L
+      val musicStartMs = maxOf(SONG_MIN_LEAD_IN_MS, SONG_FIRST_STEP_MIN_MS - firstStepMs)
+      val notes = chart.steps.mapIndexed { index, step ->
+        PracticeNote(
+          id = index + 1,
+          lane = step.lane,
+          beat = step.beat,
+          hitTimeMs = musicStartMs + (step.timeSeconds * 1000.0).roundToLong()
+        )
+      }
+      val firstBpm = chart.timing.bpmValues.firstOrNull() ?: 120.0
+      return GameplayRoundState(
+        bpm = firstBpm.roundToInt().coerceAtLeast(1),
+        beatZeroTimeMs = 3_000L,
+        currentGameTimeMs = 0L,
+        isRunning = isRunning,
+        notes = notes,
+        meta = RoundMeta(
+          title = song.title,
+          artist = song.artist,
+          difficultyName = chart.difficulty.displayName,
+          difficultyIndex = chart.difficulty.ordinal,
+          meter = chart.meter,
+          bpmLabel = song.displayBpm,
+          backgroundPath = song.backgroundPath,
+          musicPath = song.musicPath
+        ),
+        musicStartMs = musicStartMs,
+        timing = chart.timing
+      )
+    }
 
     fun createNewRound(
       bpm: Int = PracticePatternGenerator.DEFAULT_BPM,

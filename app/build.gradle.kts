@@ -12,8 +12,8 @@ android {
     applicationId = "com.rhythmpad7.app"
     minSdk = 24
     targetSdk = 36
-    versionCode = 3
-    versionName = "0.2.1"
+    versionCode = 4
+    versionName = "0.3.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -86,6 +86,7 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.compose)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.lifecycle.viewmodel.compose)
+  implementation(libs.androidx.media3.exoplayer)
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)
 

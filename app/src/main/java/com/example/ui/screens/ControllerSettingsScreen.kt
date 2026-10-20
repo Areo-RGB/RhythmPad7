@@ -284,7 +284,7 @@ fun ControllerSettingsScreen(
 
       SmFooter(
         text = "Tap REMAP, then step on the panel to bind it  •  Back returns to the title menu",
-        trailing = "RhythmPad7 v0.2.1"
+        trailing = "RhythmPad7 v0.3.0"
       )
     }
   }

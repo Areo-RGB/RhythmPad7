@@ -3,7 +3,7 @@ package com.example.core.gameplay
 import android.os.SystemClock
 
 /**
- * Authoritative monotonic gameplay clock for RhythmPad7 v0.2.1.
+ * Authoritative monotonic gameplay clock for RhythmPad7 v0.3.0.
  *
  * Uses Android's monotonic uptime ([SystemClock.uptimeMillis]) as the single source of truth
  * and derives elapsed gameplay time directly from clock anchors rather than accumulating
@@ -102,6 +102,16 @@ class GameplayClock(
     }
     val effectiveUptime = pausedAtUptimeMs ?: eventUptimeMs
     return (effectiveUptime - startUptimeMs - accumulatedPauseDurationMs).coerceAtLeast(0L)
+  }
+
+  /**
+   * Moves the anchor by [deltaMs] so elapsed gameplay time drops by [deltaMs]
+   * (positive = clock was ahead of the music). Used to lock the clock to audio playback;
+   * elapsed time is still derived from monotonic uptime anchors, never accumulated.
+   */
+  fun nudge(deltaMs: Long) {
+    if (!isStarted || deltaMs == 0L) return
+    startUptimeMs += deltaMs
   }
 
   /**

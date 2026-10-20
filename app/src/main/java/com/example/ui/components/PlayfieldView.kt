@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.core.gameplay.GameplayRoundState
-import com.example.core.gameplay.PracticePatternGenerator
 import com.example.core.model.GameLane
 import com.example.core.model.Judgment
 import com.example.core.model.NoteState
@@ -129,8 +128,8 @@ fun PlayfieldView(
       val currentGameTimeMs = roundState.currentGameTimeMs
       val travelDurationMs = roundState.travelDurationMs
 
-      val beatsElapsed = (currentGameTimeMs - roundState.beatZeroTimeMs) * roundState.bpm / 60000f
-      val beatPhase = ((beatsElapsed % 1f) + 1f) % 1f
+      val currentBeat = roundState.beatAt(currentGameTimeMs)
+      val beatPhase = (((currentBeat % 1.0) + 1.0) % 1.0).toFloat()
 
       // 0. ScreenFilter: dark backing plate behind the note field, softened at the edges
       drawRect(color = Color(0xD0000000), size = Size(canvasWidth, canvasHeight))
@@ -170,21 +169,20 @@ fun PlayfieldView(
         }
       }
 
-      // 2. Faint scrolling measure bars
-      for (beatIndex in 0..68 step 4) {
-        val beatTimeMs = PracticePatternGenerator.beatToTimeMs(
-          beat = beatIndex.toDouble(),
-          beatZeroTimeMs = roundState.beatZeroTimeMs,
-          bpm = roundState.bpm
-        )
+      // 2. Faint scrolling measure bars (StepMania TimingData aware)
+      val firstMeasureBeat = kotlin.math.floor(currentBeat / 4.0) * 4.0
+      for (m in 0..16) {
+        val measureBeat = firstMeasureBeat + m * 4.0
+        if (measureBeat < 0.0) continue
         val lineY = PracticeNote.calculateNoteY(
-          noteHitTimeMs = beatTimeMs,
+          noteHitTimeMs = roundState.gameTimeAtBeat(measureBeat),
           currentGameTimeMs = currentGameTimeMs,
           receptorY = receptorY,
           playfieldHeight = canvasHeight,
           travelDurationMs = travelDurationMs
         )
-        if (lineY in receptorY..canvasHeight) {
+        if (lineY > canvasHeight) break
+        if (lineY >= receptorY) {
           drawLine(
             color = Color(0x1FFFFFFF),
             start = Offset(0f, lineY),
