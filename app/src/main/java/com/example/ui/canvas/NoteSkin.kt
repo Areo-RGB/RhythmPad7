@@ -286,8 +286,10 @@ object NoteSkinDrawing {
       1f - decel
     }
     val tint = when (judgment) {
-      Judgment.EXCELLENT -> Color(1f, 1f, 1f)
-      Judgment.GOOD -> Color(0.6f, 1f, 0.8f)
+      Judgment.W1, Judgment.W2 -> Color(1f, 1f, 1f)
+      Judgment.W3 -> Color(0.6f, 1f, 0.8f)
+      Judgment.W4 -> Color(0.6f, 1f, 1f)
+      Judgment.W5 -> Color(1f, 0.6f, 1f)
       Judgment.MISS -> return
     }
     drawScope.rotate(rotationFor(lane), pivot = center) {

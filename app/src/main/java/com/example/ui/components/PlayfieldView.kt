@@ -247,7 +247,7 @@ fun PlayfieldView(
               lane = note.lane,
               center = Offset(laneCenterX, receptorY),
               size = arrowSize,
-              judgment = note.judgment ?: Judgment.GOOD,
+              judgment = note.judgment ?: Judgment.W3,
               elapsedMs = currentGameTimeMs - judgedAt
             )
           }
@@ -262,7 +262,7 @@ fun PlayfieldView(
             note.holdJudgedAtMs?.let { endAt ->
               NoteSkinDrawing.drawExplosion(
                 this, skin, note.lane, Offset(laneCenterX, receptorY), arrowSize,
-                Judgment.EXCELLENT, currentGameTimeMs - endAt
+                Judgment.W1, currentGameTimeMs - endAt
               )
             }
             continue

@@ -807,7 +807,7 @@ fun LaneArrowIcon(
     if (pressed) {
       NoteSkinDrawing.drawNote(this, skin, lane, center, px, lane.quantFrame, isMissed = false)
       NoteSkinDrawing.drawExplosion(
-        this, skin, lane, center, px, com.example.core.model.Judgment.EXCELLENT, elapsedMs = 380L
+        this, skin, lane, center, px, com.example.core.model.Judgment.W1, elapsedMs = 380L
       )
     } else {
       NoteSkinDrawing.drawReceptor(this, skin, lane, center, px, beatPhase = 0.6f, pressAmount = 0f, flashAlpha = 0f)

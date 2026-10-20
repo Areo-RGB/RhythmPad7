@@ -270,8 +270,8 @@ class SimfileParserTest {
     val after = start.advanceTime(hold.hitTimeMs + 400, emptySet())
     val note = after.notes.first { it.id == hold.id }
     assertEquals(HoldResult.LET_GO, note.holdResult)
-    // Both heads on beat 0 (hold + roll) are missed and both count as NG
-    assertEquals(2, after.missCount)
+    // Both heads on beat 0 (hold + roll) are on the same row (1 Miss row) and both count as NG
+    assertEquals(1, after.missCount)
     assertEquals(2, after.letGoCount)
   }
 

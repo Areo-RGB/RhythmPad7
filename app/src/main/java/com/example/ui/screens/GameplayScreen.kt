@@ -8,6 +8,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -44,11 +45,16 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.imageResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -59,10 +65,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.chart.Difficulty
+import com.example.core.gameplay.FullComboKind
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
@@ -102,6 +111,7 @@ import com.example.ui.theme.SmTextMuted
 import com.example.ui.theme.SmTextSecondary
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Roboto bold italic used for judgments and combo ("Combo Numbers" / Judgment Normal). */
 private val JudgmentTextStyle = TextStyle(
@@ -339,9 +349,12 @@ fun GameplayScreen(
           title = "JUDGMENTS",
           contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)
         ) {
-          JudgmentLine("EXCELLENT", "±70ms", roundState.excellentCount, Judgment.EXCELLENT.color)
-          JudgmentLine("GOOD", "±150ms", roundState.goodCount, Judgment.GOOD.color)
-          JudgmentLine("MISS", ">150ms", roundState.missCount, Judgment.MISS.color)
+          JudgmentLine("FLAWLESS", "±22.5ms", roundState.w1Count, Judgment.W1.color)
+          JudgmentLine("PERFECT", "±45ms", roundState.w2Count, Judgment.W2.color)
+          JudgmentLine("GREAT", "±90ms", roundState.w3Count, Judgment.W3.color)
+          JudgmentLine("GOOD", "±135ms", roundState.w4Count, Judgment.W4.color)
+          JudgmentLine("BAD", "±180ms", roundState.w5Count, Judgment.W5.color)
+          JudgmentLine("MISS", ">180ms", roundState.missCount, Judgment.MISS.color)
           if (roundState.totalHolds > 0) {
             JudgmentLine("OK", "holds", roundState.heldCount, HoldOkColor)
             JudgmentLine("NG", "let go", roundState.letGoCount, Judgment.MISS.color)
@@ -582,43 +595,167 @@ private fun CountdownBanner(countdown: String?, modifier: Modifier = Modifier) {
   }
 }
 
+private data class JudgmentAnimState(
+  val zoomX: Float,
+  val zoomY: Float,
+  val alpha: Float,
+  val offsetXDp: Float = 0f,
+  val offsetYDp: Float = 0f,
+  val glowAlpha: Float = 0f
+)
+
+private fun smoothStep(t: Float): Float {
+  val u = t.coerceIn(0f, 1f)
+  return u * u * (3f - 2f * u)
+}
+
+/**
+ * StepMania `JudgmentW1Command` .. `JudgmentMissCommand` (`Themes/default/metrics.ini`).
+ */
+private fun computeJudgmentAnim(judgment: Judgment, elapsedMs: Long): JudgmentAnimState? {
+  if (elapsedMs < 0L) return null
+  val t = elapsedMs.toFloat()
+  return when (judgment) {
+    Judgment.W1 -> {
+      // zoom,0.9;smooth,0.05;zoom,0.75;sleep,0.8;smooth,0.1;zoomy,0.5;zoomx,1.3;diffusealpha,0;
+      // glowblink;effectperiod,0.05;effectcolor1,color("1,1,1,0");effectcolor2,color("1,1,1,0.25")
+      if (elapsedMs > 950L) return null
+      val glow = if ((elapsedMs / 25L) % 2L == 1L) 0.25f else 0f
+      when {
+        t < 50f -> {
+          val z = 0.9f + (0.75f - 0.9f) * smoothStep(t / 50f)
+          JudgmentAnimState(zoomX = z, zoomY = z, alpha = 1f, glowAlpha = glow)
+        }
+        t < 850f -> JudgmentAnimState(zoomX = 0.75f, zoomY = 0.75f, alpha = 1f, glowAlpha = glow)
+        else -> {
+          val u = smoothStep((t - 850f) / 100f)
+          JudgmentAnimState(
+            zoomX = 0.75f + (1.3f - 0.75f) * u,
+            zoomY = 0.75f + (0.5f - 0.75f) * u,
+            alpha = 1f - u,
+            glowAlpha = glow * (1f - u)
+          )
+        }
+      }
+    }
+
+    Judgment.W2, Judgment.W3, Judgment.W4 -> {
+      // zoom,0.9;smooth,0.05;zoom,0.75;sleep,0.5;smooth,0.1;zoomy,0.5;zoomx,2;diffusealpha,0
+      if (elapsedMs > 650L) return null
+      when {
+        t < 50f -> {
+          val z = 0.9f + (0.75f - 0.9f) * smoothStep(t / 50f)
+          JudgmentAnimState(zoomX = z, zoomY = z, alpha = 1f)
+        }
+        t < 550f -> JudgmentAnimState(zoomX = 0.75f, zoomY = 0.75f, alpha = 1f)
+        else -> {
+          val u = smoothStep((t - 550f) / 100f)
+          JudgmentAnimState(
+            zoomX = 0.75f + (2f - 0.75f) * u,
+            zoomY = 0.75f + (0.5f - 0.75f) * u,
+            alpha = 1f - u
+          )
+        }
+      }
+    }
+
+    Judgment.W5 -> {
+      // zoom,0.75;vibrate;effectmagnitude,1,2,2;sleep,0.5;smooth,0.1;zoomy,0.5;zoomx,2;diffusealpha,0
+      if (elapsedMs > 600L) return null
+      val vibX = if ((elapsedMs / 16L) % 2L == 0L) 1f else -1f
+      val vibY = if ((elapsedMs / 24L) % 2L == 0L) 2f else -2f
+      if (t < 500f) {
+        JudgmentAnimState(zoomX = 0.75f, zoomY = 0.75f, alpha = 1f, offsetXDp = vibX, offsetYDp = vibY)
+      } else {
+        val u = smoothStep((t - 500f) / 100f)
+        JudgmentAnimState(
+          zoomX = 0.75f + (2f - 0.75f) * u,
+          zoomY = 0.75f + (0.5f - 0.75f) * u,
+          alpha = 1f - u,
+          offsetXDp = vibX,
+          offsetYDp = vibY
+        )
+      }
+    }
+
+    Judgment.MISS -> {
+      // zoom,0.75;y,-20;smooth,0.8;y,20;sleep,0.5;smooth,0.1;zoomy,0.5;zoomx,2;diffusealpha,0
+      if (elapsedMs > 1400L) return null
+      when {
+        t < 800f -> {
+          val y = -20f + 40f * smoothStep(t / 800f)
+          JudgmentAnimState(zoomX = 0.75f, zoomY = 0.75f, alpha = 1f, offsetYDp = y)
+        }
+        t < 1300f -> JudgmentAnimState(zoomX = 0.75f, zoomY = 0.75f, alpha = 1f, offsetYDp = 20f)
+        else -> {
+          val u = smoothStep((t - 1300f) / 100f)
+          JudgmentAnimState(
+            zoomX = 0.75f + (2f - 0.75f) * u,
+            zoomY = 0.75f + (0.5f - 0.75f) * u,
+            alpha = 1f - u,
+            offsetYDp = 20f
+          )
+        }
+      }
+    }
+  }
+}
+
 @Composable
 private fun JudgmentAndCombo(roundState: GameplayRoundState, modifier: Modifier = Modifier) {
   val lastJudgment = roundState.lastJudgment
   val elapsed = if (lastJudgment != null) roundState.currentGameTimeMs - lastJudgment.triggeredAtGameTimeMs else Long.MAX_VALUE
-  val showJudgment = lastJudgment != null && elapsed in 0L..950L
+  val anim = if (lastJudgment != null) computeJudgmentAnim(lastJudgment.judgment, elapsed) else null
+  val judgmentSheet = ImageBitmap.imageResource(R.drawable.sm_judgment_normal)
 
   Column(
     modifier = modifier,
     horizontalAlignment = Alignment.CenterHorizontally
   ) {
-    if (showJudgment && lastJudgment != null) {
-      // Judgment Normal: zoom 1.3 → 1 over ~100 ms, hold, then fade
-      val t = elapsed.toFloat()
-      val zoom = if (t < 100f) 1.3f - 0.3f * (t / 100f) else 1f
-      val alpha = if (t > 750f) 1f - (t - 750f) / 200f else 1f
-      val label = when (lastJudgment.judgment) {
-        Judgment.EXCELLENT -> "EXCELLENT!!"
-        Judgment.GOOD -> "GOOD"
-        Judgment.MISS -> "MISS..."
-      }
-      Text(
-        text = label,
-        style = JudgmentTextStyle.copy(
-          fontSize = 52.sp,
-          letterSpacing = 1.sp,
-          brush = Brush.verticalGradient(
-            listOf(Color.White, lastJudgment.judgment.color, lastJudgment.judgment.color)
-          )
-        ).smShadow(4f, Color(0xE6000000)),
+    if (lastJudgment != null && anim != null) {
+      val row = lastJudgment.judgment.ordinal.coerceIn(0, 5)
+      val col = if (lastJudgment.timingErrorMs < 0L) 0 else 1
+      val frameW = judgmentSheet.width / 2
+      val frameH = judgmentSheet.height / 6
+
+      Canvas(
         modifier = Modifier
+          .width(316.dp)
+          .height(86.dp)
           .graphicsLayer {
-            scaleX = zoom
-            scaleY = zoom
-            this.alpha = alpha.coerceIn(0f, 1f)
+            scaleX = anim.zoomX
+            scaleY = anim.zoomY
+            translationX = anim.offsetXDp.dp.toPx()
+            translationY = anim.offsetYDp.dp.toPx()
+            this.alpha = anim.alpha.coerceIn(0f, 1f)
           }
           .testTag("gameplay_text_judgment")
-      )
+      ) {
+        val dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+        val srcOffset = IntOffset(col * frameW, row * frameH)
+        val srcSize = IntSize(frameW, frameH)
+        drawImage(
+          image = judgmentSheet,
+          srcOffset = srcOffset,
+          srcSize = srcSize,
+          dstOffset = IntOffset.Zero,
+          dstSize = dstSize,
+          filterQuality = FilterQuality.High
+        )
+        if (anim.glowAlpha > 0f) {
+          drawImage(
+            image = judgmentSheet,
+            srcOffset = srcOffset,
+            srcSize = srcSize,
+            dstOffset = IntOffset.Zero,
+            dstSize = dstSize,
+            alpha = anim.glowAlpha,
+            colorFilter = ColorFilter.tint(Color.White, BlendMode.SrcAtop),
+            blendMode = BlendMode.Plus,
+            filterQuality = FilterQuality.High
+          )
+        }
+      }
 
       if (lastJudgment.judgment != Judgment.MISS) {
         val err = lastJudgment.timingErrorMs
@@ -633,17 +770,21 @@ private fun JudgmentAndCombo(roundState: GameplayRoundState, modifier: Modifier 
             fontSize = 15.sp,
             color = if (err < 0L) Color(0xFF8FC8FF) else Color(0xFFFFB27A)
           ).smShadow(2f),
-          modifier = Modifier.graphicsLayer { this.alpha = alpha.coerceIn(0f, 1f) }
+          modifier = Modifier.graphicsLayer { this.alpha = anim.alpha.coerceIn(0f, 1f) }
         )
       }
     }
 
     // Combo: StepMania shows it from 4 combo onward
     if (roundState.combo >= 4) {
-      val fullCombo = roundState.missCount == 0
+      val noComboBreak = roundState.missCount == 0 &&
+        roundState.w5Count == 0 &&
+        roundState.w4Count == 0 &&
+        roundState.letGoCount == 0
       val comboColor = when {
-        fullCombo && roundState.goodCount == 0 -> Judgment.EXCELLENT.color
-        fullCombo -> SmMaxCombo
+        noComboBreak && roundState.w2Count == 0 && roundState.w3Count == 0 -> Judgment.W1.color
+        noComboBreak && roundState.w3Count == 0 -> Judgment.W2.color
+        noComboBreak -> Judgment.W3.color
         else -> Color.White
       }
       Spacer(modifier = Modifier.height(8.dp))
@@ -714,7 +855,7 @@ private fun ScoreFrame(roundState: GameplayRoundState) {
       modifier = Modifier.testTag("gameplay_text_score")
     )
     Text(
-      text = String.format(Locale.US, "%.1f%%", roundState.accuracyPercent),
+      text = String.format(Locale.US, "%.2f%%", roundState.percentDp),
       style = NumberStyle.copy(fontSize = 22.sp, color = SmMaxCombo).smShadow(1.5f)
     )
   }
@@ -826,33 +967,29 @@ private fun PauseOverlay(
   }
 }
 
-/** StepMania 5 default grade tiers (Themes/default/metrics.ini GradePercentTierNN). */
-private fun gradeDrawable(roundState: GameplayRoundState): Int {
-  if (roundState.judgedNotesCount > 0 &&
-    roundState.excellentCount == roundState.judgedNotesCount &&
-    roundState.letGoCount == 0
-  ) {
-    return R.drawable.sm_grade_tier01
-  }
-  val pct = roundState.accuracyPercent / 100f
-  val tiers = listOf(
-    0.98f to R.drawable.sm_grade_tier03,
-    0.96f to R.drawable.sm_grade_tier04,
-    0.94f to R.drawable.sm_grade_tier05,
-    0.92f to R.drawable.sm_grade_tier06,
-    0.89f to R.drawable.sm_grade_tier07,
-    0.86f to R.drawable.sm_grade_tier08,
-    0.83f to R.drawable.sm_grade_tier09,
-    0.80f to R.drawable.sm_grade_tier10,
-    0.76f to R.drawable.sm_grade_tier11,
-    0.72f to R.drawable.sm_grade_tier12,
-    0.68f to R.drawable.sm_grade_tier13,
-    0.64f to R.drawable.sm_grade_tier14,
-    0.60f to R.drawable.sm_grade_tier15,
-    0.55f to R.drawable.sm_grade_tier16
-  )
-  return tiers.firstOrNull { pct >= it.first }?.second ?: R.drawable.sm_grade_tier17
+/** Maps a StepMania 1..17 grade tier to its bundled `sm_grade_tierNN` drawable resource. */
+fun gradeDrawableForTier(tier: Int): Int = when (tier.coerceIn(1, 17)) {
+  1 -> R.drawable.sm_grade_tier01
+  2 -> R.drawable.sm_grade_tier02
+  3 -> R.drawable.sm_grade_tier03
+  4 -> R.drawable.sm_grade_tier04
+  5 -> R.drawable.sm_grade_tier05
+  6 -> R.drawable.sm_grade_tier06
+  7 -> R.drawable.sm_grade_tier07
+  8 -> R.drawable.sm_grade_tier08
+  9 -> R.drawable.sm_grade_tier09
+  10 -> R.drawable.sm_grade_tier10
+  11 -> R.drawable.sm_grade_tier11
+  12 -> R.drawable.sm_grade_tier12
+  13 -> R.drawable.sm_grade_tier13
+  14 -> R.drawable.sm_grade_tier14
+  15 -> R.drawable.sm_grade_tier15
+  16 -> R.drawable.sm_grade_tier16
+  else -> R.drawable.sm_grade_tier17
 }
+
+/** StepMania 5 default grade tiers (Themes/default/metrics.ini GradePercentTierNN). */
+private fun gradeDrawable(roundState: GameplayRoundState): Int = gradeDrawableForTier(roundState.gradeTier)
 
 @Composable
 private fun EvaluationOverlay(
@@ -901,13 +1038,19 @@ private fun EvaluationOverlay(
           )
           Spacer(modifier = Modifier.height(6.dp))
           Text(
-            text = String.format(Locale.US, "%.2f%%", roundState.accuracyPercent),
+            text = String.format(Locale.US, "%.2f%%", roundState.percentDp),
             style = NumberStyle.copy(fontSize = 34.sp, color = Color.White).smShadow(2f)
           )
-          if (roundState.missCount == 0 && roundState.judgedNotesCount > 0) {
+          roundState.fullComboKind?.let { fc ->
+            val (fcText, fcColor) = when (fc) {
+              FullComboKind.FLAWLESS -> "FLAWLESS FULL COMBO" to Judgment.W1.color
+              FullComboKind.PERFECT -> "PERFECT FULL COMBO" to Judgment.W2.color
+              FullComboKind.GREAT -> "GREAT FULL COMBO" to Judgment.W3.color
+            }
             SmChip(
-              text = if (roundState.goodCount == 0) "FULL EXCELLENT COMBO" else "FULL COMBO",
-              color = if (roundState.goodCount == 0) Color(0xFF3A8FB7) else SmEasyGreen
+              text = fcText,
+              color = fcColor,
+              textColor = SmCharcoal
             )
           }
         }
@@ -931,8 +1074,11 @@ private fun EvaluationOverlay(
             modifier = Modifier.testTag("summary_text_final_score")
           )
           Spacer(modifier = Modifier.height(8.dp))
-          JudgmentLine("EXCELLENT", null, roundState.excellentCount, Judgment.EXCELLENT.color)
-          JudgmentLine("GOOD", null, roundState.goodCount, Judgment.GOOD.color)
+          JudgmentLine("FLAWLESS", null, roundState.w1Count, Judgment.W1.color)
+          JudgmentLine("PERFECT", null, roundState.w2Count, Judgment.W2.color)
+          JudgmentLine("GREAT", null, roundState.w3Count, Judgment.W3.color)
+          JudgmentLine("GOOD", null, roundState.w4Count, Judgment.W4.color)
+          JudgmentLine("BAD", null, roundState.w5Count, Judgment.W5.color)
           JudgmentLine("MISS", null, roundState.missCount, Judgment.MISS.color)
           if (roundState.totalHolds > 0) {
             JudgmentLine("OK", "holds", roundState.heldCount, HoldOkColor)

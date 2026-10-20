@@ -158,7 +158,7 @@ fun DebugOverlayView(
       )
       Spacer(modifier = Modifier.height(2.dp))
       Text(
-        text = "EXC: ${roundState.excellentCount} | GOOD: ${roundState.goodCount} | MISS: ${roundState.missCount}",
+        text = "W1:${roundState.w1Count} W2:${roundState.w2Count} W3:${roundState.w3Count} W4:${roundState.w4Count} W5:${roundState.w5Count} MISS:${roundState.missCount}",
         style = MaterialTheme.typography.labelSmall.copy(
           color = Color(0xFFE2E8F0),
           fontFamily = FontFamily.Monospace
