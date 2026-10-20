@@ -1,0 +1,3 @@
+[submodule "vendor/mobile-harness"]
+	path = vendor/mobile-harness
+	url = https://github.com/droidrun/mobile-harness.git

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rhythmpad-mobile-harness"
+version = "0.1.0"
+description = "RhythmPad7 integration layer for Droidrun Mobile Harness"
+requires-python = ">=3.11,<3.14"
+dependencies = ["mobilerun-core[local]==1.9.0"]
+
+[project.scripts]
+rhythmpad-harness = "rhythmpad_harness.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rhythmpad_harness"]
