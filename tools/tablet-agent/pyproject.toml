@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rhythmpad-tablet-agent"
+version = "0.1.0"
+description = "Mobilerun Portal client, tablet CLI, and MCP tools"
+requires-python = ">=3.11"
+dependencies = ["websockets>=15,<18", "mcp>=1.26,<2"]
+
+[project.scripts]
+tablet = "tablet_agent.cli:main"
+tablet-mcp = "tablet_agent.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tablet_agent"]

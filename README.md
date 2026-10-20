@@ -66,3 +66,7 @@ gradle :app:testDebugUnitTest
 # Assemble debug APK (automatically copies app-debug.apk to project root)
 gradle assembleDebug
 ```
+
+## Tablet automation
+
+[Tablet Agent](tools/tablet-agent/README.md) provides a shared Python client, the `tablet` CLI, and an MCP server for controlling the Xiaomi tablet through Mobilerun Portal. Start with `tablet status`, `tablet inspect`, or `tablet doctor` after configuring a local device profile.

@@ -46,3 +46,9 @@
 
 6. **Root APK Sync (`app/build.gradle.kts` & `copy_debug_apk.sh`)**
    - `assembleDebug` automatically copies the generated APK to `/app-debug.apk` in the project root. Preserve this Gradle hook across edits.
+
+---
+
+## Tablet Automation
+
+`tools/tablet-agent/` contains the Mobilerun Portal client, `tablet` CLI, and `tablet-agent` MCP server. Read its `README.md` for setup and commands. Prefer current resource IDs from `tablet inspect` / MCP `inspect_screen` over stored coordinates. Check `verified` separately from `accepted`; never blindly repeat an action whose error reports `outcome_unknown:true`. `tablet doctor` is read-only; `--full` also round-trips clipboard/files and restores its temporary settings. Keep device profiles/tokens outside the repository. Gameplay inputs must still come from the physical dance mat.
