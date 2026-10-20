@@ -4,10 +4,12 @@ import com.example.core.chart.Difficulty
 import com.example.core.chart.MsdFile
 import com.example.core.chart.SimfileLoader
 import com.example.core.chart.SongLibrary
+import com.example.core.chart.StepKind
 import com.example.core.chart.TimingData
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
+import com.example.core.model.HoldResult
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -169,6 +171,108 @@ class SimfileParserTest {
     val m240 = x1.copy(scrollMod = ScrollMod.M(240))
     assertEquals(120.0, song.readBpm, 1e-9)
     assertEquals(2.0, m240.scrollUnits(n2.beat, n2.hitTimeMs, now), 1e-6)
+  }
+
+  // ---------------------------------------------------------------- Holds / rolls
+
+  private val holdSsc = """
+    #TITLE:Holds;
+    #MUSIC:a.ogg;
+    #OFFSET:0;
+    #BPMS:0=60;
+    #NOTEDATA:;
+    #STEPSTYPE:dance-single;
+    #DIFFICULTY:Easy;
+    #METER:1;
+    #NOTES:
+    2004
+    0000
+    3000
+    0003
+    ,
+    2000
+    0000
+    0000
+    0000
+    ;
+  """.trimIndent()
+
+  private fun holdRound(): GameplayRoundState {
+    val song = SimfileLoader.load(holdSsc, isSsc = true, folder = "songs/h")
+    return GameplayRoundState.createSongRound(song, song.charts.single())
+  }
+
+  @Test
+  fun parsesHoldAndRollTails() {
+    val steps = SimfileLoader.load(holdSsc, isSsc = true, folder = "songs/h").charts.single().steps
+    assertEquals(3, steps.size)
+    val hold = steps.first { it.lane == GameLane.LEFT && it.beat == 0.0 }
+    assertEquals(StepKind.HOLD, hold.kind)
+    assertEquals(2.0, hold.endBeat!!, 1e-9)
+    val roll = steps.first { it.lane == GameLane.RIGHT }
+    assertEquals(StepKind.ROLL, roll.kind)
+    assertEquals(3.0, roll.endBeat!!, 1e-9)
+    // A head with no tail plays as a tap
+    assertEquals(StepKind.TAP, steps.first { it.beat == 4.0 }.kind)
+  }
+
+  @Test
+  fun holdKeptPressedIsOkAndReleasedIsNg() {
+    val start = holdRound()
+    val hold = start.notes.first { it.lane == GameLane.LEFT && it.isHold }
+    var held = start.onLanePressed(GameLane.LEFT, hold.hitTimeMs)
+    assertEquals(HoldResult.ACTIVE, held.notes.first { it.id == hold.id }.holdResult)
+    // Hold the panel in 16 ms frames until past the tail (2 s at 60 BPM)
+    var t = hold.hitTimeMs
+    while (t < hold.holdEndMs!! + 50) {
+      t += 16
+      held = held.advanceTime(t, setOf(GameLane.LEFT))
+    }
+    assertEquals(HoldResult.HELD, held.notes.first { it.id == hold.id }.holdResult)
+    assertEquals(1, held.heldCount)
+
+    // Same hold, released after 500 ms: NG once 250 ms pass without the panel
+    var dropped = start.onLanePressed(GameLane.LEFT, hold.hitTimeMs)
+    t = hold.hitTimeMs
+    while (t < hold.hitTimeMs + 500) { t += 16; dropped = dropped.advanceTime(t, setOf(GameLane.LEFT)) }
+    while (t < hold.hitTimeMs + 740) { t += 16; dropped = dropped.advanceTime(t, emptySet()) }
+    assertEquals(HoldResult.ACTIVE, dropped.notes.first { it.id == hold.id }.holdResult)
+    while (t < hold.hitTimeMs + 800) { t += 16; dropped = dropped.advanceTime(t, emptySet()) }
+    assertEquals(HoldResult.LET_GO, dropped.notes.first { it.id == hold.id }.holdResult)
+    // The untouched roll head on the same beat is also NG
+    assertEquals(2, dropped.letGoCount)
+  }
+
+  @Test
+  fun rollNeedsRepeatedSteps() {
+    val start = holdRound()
+    val roll = start.notes.first { it.isRoll }
+    var state = start.onLanePressed(GameLane.RIGHT, roll.hitTimeMs)
+    var t = roll.hitTimeMs
+    // Holding the panel down does not keep a roll alive; re-stepping every 300 ms does
+    while (t < roll.holdEndMs!! + 50) {
+      t += 16
+      state = state.advanceTime(t, setOf(GameLane.RIGHT))
+      if ((t - roll.hitTimeMs) % 304 == 0L) state = state.onLanePressed(GameLane.RIGHT, t)
+    }
+    assertEquals(HoldResult.HELD, state.notes.first { it.id == roll.id }.holdResult)
+
+    var lazy = start.onLanePressed(GameLane.RIGHT, roll.hitTimeMs)
+    t = roll.hitTimeMs
+    while (t < roll.hitTimeMs + 600) { t += 16; lazy = lazy.advanceTime(t, setOf(GameLane.RIGHT)) }
+    assertEquals(HoldResult.LET_GO, lazy.notes.first { it.id == roll.id }.holdResult)
+  }
+
+  @Test
+  fun missedHeadCountsAsNg() {
+    val start = holdRound()
+    val hold = start.notes.first { it.lane == GameLane.LEFT && it.isHold }
+    val after = start.advanceTime(hold.hitTimeMs + 400, emptySet())
+    val note = after.notes.first { it.id == hold.id }
+    assertEquals(HoldResult.LET_GO, note.holdResult)
+    // Both heads on beat 0 (hold + roll) are missed and both count as NG
+    assertEquals(2, after.missCount)
+    assertEquals(2, after.letGoCount)
   }
 
   @Test

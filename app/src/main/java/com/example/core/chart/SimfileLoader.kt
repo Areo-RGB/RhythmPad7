@@ -6,8 +6,8 @@ import kotlin.math.roundToInt
 
 /**
  * Loads `dance-single` charts from StepMania `.ssc` (NotesLoaderSSC.cpp) and `.sm`
- * (NotesLoaderSM.cpp) text. Only what RhythmPad7 can play is kept: taps, plus hold / roll
- * heads treated as taps. Mines, fakes, lifts and notes inside warps are skipped.
+ * (NotesLoaderSM.cpp) text. Only what RhythmPad7 can play is kept: taps, holds (`2`…`3`) and
+ * rolls (`4`…`3`). Mines, fakes, lifts and notes inside warps are skipped.
  */
 object SimfileLoader {
 
@@ -133,6 +133,8 @@ object SimfileLoader {
   /** Measures separated by ',', each with N rows of 4 columns; row r of measure m is beat 4m + 4r/N. */
   fun parseNoteData(data: String, timing: TimingData): List<ChartStep> {
     val steps = mutableListOf<ChartStep>()
+    // Index into [steps] of the hold/roll head still waiting for its '3' tail, per column
+    val openHolds = arrayOfNulls<Int>(4)
     val measures = data.substringBefore('&').split(',')
     measures.forEachIndexed { measureIndex, measure ->
       val rows = measure.lines()
@@ -142,27 +144,40 @@ object SimfileLoader {
       rows.forEachIndexed { rowIndex, row ->
         val beat = measureIndex * 4.0 + rowIndex * 4.0 / rows.size
         val rounded = TimingData.rowToBeat(TimingData.beatToRow(beat))
-        if (timing.isWarpedBeat(rounded)) return@forEachIndexed
+        val warped = timing.isWarpedBeat(rounded)
         var column = 0
         var i = 0
         while (i < row.length && column < 4) {
           val ch = row[i]
-          when {
-            ch == '{' -> { i = row.indexOf('}', i).let { if (it < 0) row.length else it + 1 }; continue }
-            ch == '[' -> { i = row.indexOf(']', i).let { if (it < 0) row.length else it + 1 }; continue }
+          when (ch) {
+            '{' -> { i = row.indexOf('}', i).let { if (it < 0) row.length else it + 1 }; continue }
+            '[' -> { i = row.indexOf(']', i).let { if (it < 0) row.length else it + 1 }; continue }
           }
-          if (ch == '1' || ch == '2' || ch == '4') {
-            steps += ChartStep(
-              beat = rounded,
-              timeSeconds = timing.timeAtBeat(rounded),
-              lane = GameLane.entries[column]
-            )
+          when (ch) {
+            '1', '2', '4' -> if (!warped) {
+              steps += ChartStep(
+                beat = rounded,
+                timeSeconds = timing.timeAtBeat(rounded),
+                lane = GameLane.entries[column],
+                kind = when (ch) {
+                  '2' -> StepKind.HOLD
+                  '4' -> StepKind.ROLL
+                  else -> StepKind.TAP
+                }
+              )
+              if (ch != '1') openHolds[column] = steps.lastIndex
+            }
+            '3' -> openHolds[column]?.let { index ->
+              steps[index] = steps[index].copy(endBeat = rounded, endTimeSeconds = timing.timeAtBeat(rounded))
+              openHolds[column] = null
+            }
           }
           column++
           i++
         }
       }
     }
-    return steps
+    // A head without a tail plays as a plain tap
+    return steps.map { if (it.kind != StepKind.TAP && it.endBeat == null) it.copy(kind = StepKind.TAP) else it }
   }
 }

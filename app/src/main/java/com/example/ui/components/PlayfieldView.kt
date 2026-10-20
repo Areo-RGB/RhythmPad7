@@ -17,11 +17,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
+import com.example.core.model.HoldResult
 import com.example.core.model.Judgment
 import com.example.core.model.NoteState
 import com.example.core.state.GameInputState
@@ -35,6 +44,7 @@ import com.example.ui.canvas.rememberNoteSkin
  */
 private const val NOTE_LOOKAHEAD_MS = 20_000L
 private const val NOTE_LOOKBEHIND_MS = 4_000L
+private const val HOLD_JUDGMENT_MS = 600L
 
 object PlayfieldGeometry {
   const val MIN_HIGHWAY_WIDTH_DP = 560f
@@ -90,6 +100,7 @@ fun PlayfieldView(
   modifier: Modifier = Modifier
 ) {
   val skin = rememberNoteSkin()
+  val textMeasurer = rememberTextMeasurer()
 
   // Per-lane press animation (ReceptorArrow NoneCommand zoom + ReceptorOverlay Press/Lift flash)
   val pressAmounts = GameLane.entries.map { lane ->
@@ -216,18 +227,86 @@ fun PlayfieldView(
       for (note in roundState.notes) {
         val laneCenterX = PlayfieldGeometry.laneCenterX(note.lane.ordinal, laneWidth)
 
+        // Skip far-future / long-passed notes before the per-note scroll math
+        if (note.hitTimeMs - currentGameTimeMs > NOTE_LOOKAHEAD_MS ||
+          currentGameTimeMs - note.endTimeMs > NOTE_LOOKBEHIND_MS
+        ) continue
+
+        fun yOf(beat: Double, timeMs: Long): Float = receptorY + pixelsPerBeat * roundState.scrollUnits(
+          noteBeat = beat,
+          noteHitTimeMs = timeMs,
+          nowMs = currentGameTimeMs,
+          songBeat = currentBeat
+        ).toFloat()
+
+        val headExplosion = {
+          note.judgedAtMs?.let { judgedAt ->
+            NoteSkinDrawing.drawExplosion(
+              drawScope = this,
+              skin = skin,
+              lane = note.lane,
+              center = Offset(laneCenterX, receptorY),
+              size = arrowSize,
+              judgment = note.judgment ?: Judgment.GOOD,
+              elapsedMs = currentGameTimeMs - judgedAt
+            )
+          }
+        }
+
+        val holdEndMs = note.holdEndMs
+        val holdEndBeat = note.holdEndBeat
+        if (holdEndMs != null && holdEndBeat != null) {
+          // ---- Hold / roll ----
+          val result = note.holdResult
+          if (result == HoldResult.HELD) {
+            note.holdJudgedAtMs?.let { endAt ->
+              NoteSkinDrawing.drawExplosion(
+                this, skin, note.lane, Offset(laneCenterX, receptorY), arrowSize,
+                Judgment.EXCELLENT, currentGameTimeMs - endAt
+              )
+            }
+            continue
+          }
+          val tailY = yOf(holdEndBeat, holdEndMs)
+          val isActive = result == HoldResult.ACTIVE
+          // An active hold's head stays on the receptor while its body drains into it
+          val headY = if (isActive) receptorY else yOf(note.beat, note.hitTimeMs)
+          if (minOf(headY, tailY) > visibleMaxY || maxOf(headY, tailY) + arrowSize < visibleMinY) continue
+          val beingHeld = isActive && (note.isRoll || inputState.isLanePressed(note.lane))
+          NoteSkinDrawing.drawHoldBody(
+            drawScope = this,
+            skin = skin,
+            centerX = laneCenterX,
+            headY = headY,
+            tailY = tailY,
+            size = arrowSize,
+            isRoll = note.isRoll,
+            active = beingHeld,
+            dead = result == HoldResult.LET_GO
+          )
+          if (beingHeld) {
+            NoteSkinDrawing.drawHoldingGlow(
+              this, skin, note.lane, Offset(laneCenterX, receptorY), arrowSize,
+              pulse = ((currentGameTimeMs % 100L) / 100f)
+            )
+          }
+          NoteSkinDrawing.drawNote(
+            drawScope = this,
+            skin = skin,
+            lane = note.lane,
+            center = Offset(laneCenterX, headY),
+            size = arrowSize,
+            quantFrame = NoteSkinDrawing.quantizationFrame(note.beat),
+            isMissed = result == HoldResult.LET_GO
+          )
+          if (note.state == NoteState.HIT) headExplosion()
+          continue
+        }
+
+        // ---- Tap ----
         when (note.state) {
           NoteState.PENDING, NoteState.MISSED -> {
-            // Skip far-future / long-passed notes before the per-note scroll math
-            if (note.hitTimeMs - currentGameTimeMs > NOTE_LOOKAHEAD_MS ||
-              currentGameTimeMs - note.hitTimeMs > NOTE_LOOKBEHIND_MS
-            ) continue
-            val noteY = receptorY + pixelsPerBeat * roundState.scrollUnits(
-              noteBeat = note.beat,
-              noteHitTimeMs = note.hitTimeMs,
-              nowMs = currentGameTimeMs,
-              songBeat = currentBeat
-            ).toFloat()
+            val noteY = yOf(note.beat, note.hitTimeMs)
             if (noteY in visibleMinY..visibleMaxY) {
               NoteSkinDrawing.drawNote(
                 drawScope = this,
@@ -241,19 +320,36 @@ fun PlayfieldView(
             }
           }
 
-          NoteState.HIT -> {
-            val judgedAt = note.judgedAtMs ?: continue
-            NoteSkinDrawing.drawExplosion(
-              drawScope = this,
-              skin = skin,
-              lane = note.lane,
-              center = Offset(laneCenterX, receptorY),
-              size = arrowSize,
-              judgment = note.judgment ?: Judgment.GOOD,
-              elapsedMs = currentGameTimeMs - judgedAt
-            )
-          }
+          NoteState.HIT -> headExplosion()
         }
+      }
+
+      // 5. Hold judgments: "OK" / "NG" under the receptor for 600 ms (HoldJudgment)
+      for (note in roundState.notes) {
+        val at = note.holdJudgedAtMs ?: continue
+        val age = currentGameTimeMs - at
+        if (age !in 0L..HOLD_JUDGMENT_MS) continue
+        val ok = note.holdResult == HoldResult.HELD
+        val layout = textMeasurer.measure(
+          text = if (ok) "OK" else "NG",
+          style = TextStyle(
+            fontFamily = FontFamily.Default,
+            fontWeight = FontWeight.Black,
+            fontStyle = FontStyle.Italic,
+            fontSize = 26.sp,
+            color = if (ok) Color(0xFFF1E4A2) else Color(0xFFF97E7E),
+            shadow = Shadow(Color.Black, Offset(2f, 2f), 0f)
+          )
+        )
+        val alpha = 1f - (age.toFloat() / HOLD_JUDGMENT_MS).let { it * it }
+        drawText(
+          textLayoutResult = layout,
+          topLeft = Offset(
+            PlayfieldGeometry.laneCenterX(note.lane.ordinal, laneWidth) - layout.size.width / 2f,
+            receptorY + arrowSize * 0.55f
+          ),
+          alpha = alpha
+        )
       }
     }
   }

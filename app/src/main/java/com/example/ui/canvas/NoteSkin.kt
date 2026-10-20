@@ -10,6 +10,7 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.res.imageResource
@@ -32,7 +33,16 @@ class NoteSkin(
   val arrows: ImageBitmap,
   val receptor: ImageBitmap,
   val receptorFlash: ImageBitmap,
-  val glow: ImageBitmap
+  val glow: ImageBitmap,
+  /** Hold / roll body tiles and bottom caps (128×64 each), active and inactive. */
+  val holdBodyActive: ImageBitmap,
+  val holdBodyInactive: ImageBitmap,
+  val holdCapActive: ImageBitmap,
+  val holdCapInactive: ImageBitmap,
+  val rollBodyActive: ImageBitmap,
+  val rollBodyInactive: ImageBitmap,
+  val rollCapActive: ImageBitmap,
+  val rollCapInactive: ImageBitmap
 ) {
   /** `_arrow 1x8`: one 128 px frame per quantization (4th, 8th, 12th, 16th, 24th, 32nd, 48th, 64th). */
   val arrowFrameSize: Int get() = arrows.width
@@ -44,7 +54,17 @@ fun rememberNoteSkin(): NoteSkin {
   val receptor = ImageBitmap.imageResource(R.drawable.sm_receptor)
   val flash = ImageBitmap.imageResource(R.drawable.sm_receptor_flash)
   val glow = ImageBitmap.imageResource(R.drawable.sm_tap_glow)
-  return remember(arrows, receptor, flash, glow) { NoteSkin(arrows, receptor, flash, glow) }
+  val hba = ImageBitmap.imageResource(R.drawable.sm_hold_body_active)
+  val hbi = ImageBitmap.imageResource(R.drawable.sm_hold_body_inactive)
+  val hca = ImageBitmap.imageResource(R.drawable.sm_hold_bottomcap_active)
+  val hci = ImageBitmap.imageResource(R.drawable.sm_hold_bottomcap_inactive)
+  val rba = ImageBitmap.imageResource(R.drawable.sm_roll_body_active)
+  val rbi = ImageBitmap.imageResource(R.drawable.sm_roll_body_inactive)
+  val rca = ImageBitmap.imageResource(R.drawable.sm_roll_bottomcap_active)
+  val rci = ImageBitmap.imageResource(R.drawable.sm_roll_bottomcap_inactive)
+  return remember(arrows, receptor, flash, glow, hba) {
+    NoteSkin(arrows, receptor, flash, glow, hba, hbi, hca, hci, rba, rbi, rca, rci)
+  }
 }
 
 object NoteSkinDrawing {
@@ -167,6 +187,83 @@ object NoteSkinDrawing {
         colorFilter = if (isMissed) {
           ColorFilter.tint(Color(0xFF6A6A6A), BlendMode.Modulate)
         } else null
+      )
+    }
+  }
+
+  /**
+   * Hold/roll body from [headY] down to [tailY] plus its bottom cap (notes scroll upward, so the
+   * tail is below the head). [active] = currently held (bright "Active" sprites); [dead] = let go
+   * (grayed like HoldLetGoGrayPercent).
+   */
+  fun drawHoldBody(
+    drawScope: DrawScope,
+    skin: NoteSkin,
+    centerX: Float,
+    headY: Float,
+    tailY: Float,
+    size: Float,
+    isRoll: Boolean,
+    active: Boolean,
+    dead: Boolean
+  ) {
+    val body = when {
+      isRoll && active -> skin.rollBodyActive
+      isRoll -> skin.rollBodyInactive
+      active -> skin.holdBodyActive
+      else -> skin.holdBodyInactive
+    }
+    val cap = when {
+      isRoll && active -> skin.rollCapActive
+      isRoll -> skin.rollCapInactive
+      active -> skin.holdCapActive
+      else -> skin.holdCapInactive
+    }
+    val filter = if (dead) ColorFilter.tint(Color(0xFF5A5A5A), BlendMode.Modulate) else null
+    val alpha = if (dead) 0.7f else 1f
+    val left = (centerX - size / 2f).roundToInt()
+    val width = size.roundToInt()
+    val tileH = size * body.height / body.width
+    if (tailY > headY && tileH > 0f) {
+      drawScope.clipRect(left = left.toFloat(), top = headY, right = left + size, bottom = tailY) {
+        var y = headY
+        while (y < tailY) {
+          drawImage(
+            image = body,
+            srcOffset = IntOffset.Zero,
+            srcSize = IntSize(body.width, body.height),
+            dstOffset = IntOffset(left, y.roundToInt()),
+            dstSize = IntSize(width, tileH.roundToInt() + 1),
+            alpha = alpha,
+            colorFilter = filter,
+            filterQuality = FilterQuality.High
+          )
+          y += tileH
+        }
+      }
+    }
+    val capH = size * cap.height / cap.width
+    drawScope.drawImage(
+      image = cap,
+      srcOffset = IntOffset.Zero,
+      srcSize = IntSize(cap.width, cap.height),
+      dstOffset = IntOffset(left, maxOf(tailY, headY).roundToInt()),
+      dstSize = IntSize(width, capH.roundToInt()),
+      alpha = alpha,
+      colorFilter = filter,
+      filterQuality = FilterQuality.High
+    )
+  }
+
+  /** Receptor glow while a hold/roll is being held (HoldGhostArrow glowshift). */
+  fun drawHoldingGlow(drawScope: DrawScope, skin: NoteSkin, lane: GameLane, center: Offset, size: Float, pulse: Float) {
+    drawScope.rotate(rotationFor(lane), pivot = center) {
+      drawSprite(
+        image = skin.glow,
+        center = center,
+        size = size,
+        alpha = 0.35f + 0.35f * pulse,
+        blendMode = BlendMode.Plus
       )
     }
   }

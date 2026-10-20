@@ -2,8 +2,10 @@ package com.example.core.gameplay
 
 import com.example.core.chart.Chart
 import com.example.core.chart.Song
+import com.example.core.chart.StepKind
 import com.example.core.chart.TimingData
 import com.example.core.model.GameLane
+import com.example.core.model.HoldResult
 import com.example.core.model.Judgment
 import com.example.core.model.NoteState
 import com.example.core.model.PracticeNote
@@ -71,6 +73,10 @@ data class GameplayRoundState(
   val excellentCount: Int = 0,
   val goodCount: Int = 0,
   val missCount: Int = 0,
+  /** Holds/rolls finished OK (StepMania HNS_Held). */
+  val heldCount: Int = 0,
+  /** Holds/rolls let go or with a missed head (HNS_LetGo). */
+  val letGoCount: Int = 0,
   val lastJudgment: JudgmentFeedback? = null,
   val laneLastHitTimeMs: Map<GameLane, Long> = emptyMap(),
   val judgmentSequence: Int = 0,
@@ -138,15 +144,22 @@ data class GameplayRoundState(
   val pendingNotesCount: Int
     get() = notes.count { it.state == NoteState.PENDING }
 
+  val totalHolds: Int
+    get() = notes.count { it.isHold }
+
+  val judgedHoldsCount: Int
+    get() = heldCount + letGoCount
+
   /**
    * Weighted accuracy percentage (0..100).
-   * EXCELLENT = 100% weight, GOOD = 60% weight, MISS = 0% weight.
+   * EXCELLENT = 100% weight, GOOD = 60% weight, MISS = 0% weight;
+   * each finished hold/roll weighs 100% when OK and 0% when NG.
    */
   val accuracyPercent: Float
     get() {
-      if (judgedNotesCount == 0) return 100f
-      val earnedWeight = (excellentCount * 100f) + (goodCount * 60f)
-      val possibleWeight = judgedNotesCount * 100f
+      if (judgedNotesCount + judgedHoldsCount == 0) return 100f
+      val earnedWeight = (excellentCount * 100f) + (goodCount * 60f) + (heldCount * 100f)
+      val possibleWeight = (judgedNotesCount + judgedHoldsCount) * 100f
       return ((earnedWeight / possibleWeight) * 1000f).roundToInt() / 10f
     }
 
@@ -176,19 +189,56 @@ data class GameplayRoundState(
   /**
    * Advances the round clock to [newGameTimeMs] and marks any pending notes
    * that have passed the receptor beyond the miss window (> 150ms late) as MISSED.
+   *
+   * Active holds/rolls follow StepMania's Player::UpdateHoldNotes: a hold's life refills while its
+   * lane is in [heldLanes] and drains to 0 over [HOLD_WINDOW_MS] when released; a roll always
+   * drains over [ROLL_WINDOW_MS] (re-steps refill it in [onLanePressed]). Life 0 = NG (let go),
+   * reaching the tail = OK (held). [heldLanes] null = no input sample this step (no drain).
    */
-  fun advanceTime(newGameTimeMs: Long): GameplayRoundState {
+  fun advanceTime(newGameTimeMs: Long, heldLanes: Set<GameLane>? = null): GameplayRoundState {
     if (isPaused || isCompleted) return this
 
     val clampedTimeMs = newGameTimeMs.coerceAtLeast(currentGameTimeMs)
+    val deltaMs = (clampedTimeMs - currentGameTimeMs).toFloat()
     var updatedCombo = combo
     var updatedMisses = missCount
+    var updatedHeld = heldCount
+    var updatedLetGo = letGoCount
+    var updatedScore = score
     var updatedLastJudgment = lastJudgment
     var nextSeq = judgmentSequence
     var anyNoteChanged = false
 
     val updatedNotes = notes.map { note ->
-      if (note.state == NoteState.PENDING &&
+      if (note.holdResult == HoldResult.ACTIVE) {
+        val holdEnd = note.holdEndMs ?: note.hitTimeMs
+        var life = note.holdLife
+        if (heldLanes != null && clampedTimeMs > note.hitTimeMs) {
+          life = when {
+            note.isRoll -> life - deltaMs / ROLL_WINDOW_MS
+            note.lane in heldLanes -> 1f
+            else -> life - deltaMs / HOLD_WINDOW_MS
+          }.coerceAtLeast(0f)
+        }
+        when {
+          life <= 0f -> {
+            anyNoteChanged = true
+            updatedLetGo += 1
+            note.copy(holdLife = 0f, holdResult = HoldResult.LET_GO, holdJudgedAtMs = clampedTimeMs)
+          }
+          clampedTimeMs >= holdEnd -> {
+            anyNoteChanged = true
+            updatedHeld += 1
+            updatedScore += HOLD_POINTS
+            note.copy(holdLife = 1f, holdResult = HoldResult.HELD, holdJudgedAtMs = holdEnd)
+          }
+          life != note.holdLife -> {
+            anyNoteChanged = true
+            note.copy(holdLife = life)
+          }
+          else -> note
+        }
+      } else if (note.state == NoteState.PENDING &&
         (clampedTimeMs - note.hitTimeMs) > Judgment.MISS_THRESHOLD_MS
       ) {
         anyNoteChanged = true
@@ -202,19 +252,23 @@ data class GameplayRoundState(
           triggeredAtGameTimeMs = clampedTimeMs,
           sequenceId = nextSeq
         )
+        // A missed head kills its hold: counted as NG (SCORE_MISSED_HOLDS_AND_ROLLS)
+        if (note.isHold) updatedLetGo += 1
         note.copy(
           state = NoteState.MISSED,
           judgment = Judgment.MISS,
           timingErrorMs = clampedTimeMs - note.hitTimeMs,
-          judgedAtMs = clampedTimeMs
+          judgedAtMs = clampedTimeMs,
+          holdResult = if (note.isHold) HoldResult.LET_GO else null,
+          holdLife = if (note.isHold) 0f else note.holdLife
         )
       } else {
         note
       }
     }
 
-    val lastNoteTimeMs = updatedNotes.maxOfOrNull { it.hitTimeMs } ?: 0L
-    val allJudged = updatedNotes.all { it.state != NoteState.PENDING }
+    val lastNoteTimeMs = updatedNotes.maxOfOrNull { it.endTimeMs } ?: 0L
+    val allJudged = updatedNotes.all { it.state != NoteState.PENDING && it.holdResult != HoldResult.ACTIVE }
     val roundFinished = allJudged && clampedTimeMs >= (lastNoteTimeMs + POST_ROUND_BUFFER_MS)
 
     return if (!anyNoteChanged && !roundFinished && clampedTimeMs == currentGameTimeMs) {
@@ -225,6 +279,9 @@ data class GameplayRoundState(
         notes = if (anyNoteChanged) updatedNotes else notes,
         combo = updatedCombo,
         missCount = updatedMisses,
+        heldCount = updatedHeld,
+        letGoCount = updatedLetGo,
+        score = updatedScore,
         lastJudgment = updatedLastJudgment,
         judgmentSequence = nextSeq,
         isCompleted = roundFinished,
@@ -248,10 +305,19 @@ data class GameplayRoundState(
     if (isPaused || isCompleted) return this
 
     // First ensure any overdue notes prior to inputGameTimeMs are auto-missed
-    val timeSyncedState = if (inputGameTimeMs > currentGameTimeMs) {
+    val advancedState = if (inputGameTimeMs > currentGameTimeMs) {
       advanceTime(inputGameTimeMs)
     } else {
       this
+    }
+
+    // A step on a lane with an active roll refills the roll's life (StepMania Player::Step)
+    val timeSyncedState = if (advancedState.notes.any { it.isRoll && it.lane == lane && it.holdResult == HoldResult.ACTIVE }) {
+      advancedState.copy(notes = advancedState.notes.map { note ->
+        if (note.isRoll && note.lane == lane && note.holdResult == HoldResult.ACTIVE) note.copy(holdLife = 1f) else note
+      })
+    } else {
+      advancedState
     }
 
     // Find the earliest candidate note in this lane within the ±150ms GOOD hit window.
@@ -278,7 +344,11 @@ data class GameplayRoundState(
           state = NoteState.HIT,
           judgment = judgment,
           timingErrorMs = signedErrorMs,
-          judgedAtMs = inputGameTimeMs
+          judgedAtMs = inputGameTimeMs,
+          // Stepping on a hold head starts the hold (also revives one auto-missed by a late frame)
+          holdResult = if (note.isHold) HoldResult.ACTIVE else null,
+          holdLife = 1f,
+          holdJudgedAtMs = null
         )
       } else {
         note
@@ -292,8 +362,18 @@ data class GameplayRoundState(
     var computedExcellents = 0
     var computedGoods = 0
     var computedMisses = 0
+    var computedHeld = 0
+    var computedLetGo = 0
 
     for (note in updatedNotes) {
+      when (note.holdResult) {
+        HoldResult.HELD -> {
+          computedHeld += 1
+          computedScore += HOLD_POINTS
+        }
+        HoldResult.LET_GO -> computedLetGo += 1
+        else -> {}
+      }
       when (note.state) {
         NoteState.HIT -> {
           runningCombo += 1
@@ -335,6 +415,8 @@ data class GameplayRoundState(
       excellentCount = computedExcellents,
       goodCount = computedGoods,
       missCount = computedMisses,
+      heldCount = computedHeld,
+      letGoCount = computedLetGo,
       lastJudgment = JudgmentFeedback(
         judgment = judgment,
         lane = lane,
@@ -349,6 +431,13 @@ data class GameplayRoundState(
 
   companion object {
     const val POST_ROUND_BUFFER_MS = 900L
+
+    /** StepMania TimingWindowSecondsHold / TimingWindowSecondsRoll defaults. */
+    const val HOLD_WINDOW_MS = 250f
+    const val ROLL_WINDOW_MS = 500f
+
+    /** Score for a hold/roll finished OK (same as an EXCELLENT tap). */
+    val HOLD_POINTS: Int = Judgment.EXCELLENT.points
 
     /** Earliest gameplay time the first step may land on (after the Ready?/Go! countdown). */
     const val SONG_FIRST_STEP_MIN_MS = 3_600L
@@ -367,7 +456,10 @@ data class GameplayRoundState(
           id = index + 1,
           lane = step.lane,
           beat = step.beat,
-          hitTimeMs = musicStartMs + (step.timeSeconds * 1000.0).roundToLong()
+          hitTimeMs = musicStartMs + (step.timeSeconds * 1000.0).roundToLong(),
+          holdEndMs = step.endTimeSeconds?.let { musicStartMs + (it * 1000.0).roundToLong() },
+          holdEndBeat = step.endBeat,
+          isRoll = step.kind == StepKind.ROLL
         )
       }
       val firstBpm = chart.timing.bpmValues.firstOrNull() ?: 120.0

@@ -244,7 +244,9 @@ class RhythmGameViewModel(
     if (!current.isRunning || current.isPaused || current.isCompleted) return
     if (current.isSongRound) syncAudio(current)
     val elapsedMs = gameplayClock.elapsedGameplayMs()
-    val updated = current.advanceTime(elapsedMs)
+    // Pressed lanes feed StepMania-style hold/roll life
+    val heldLanes = GameLane.entries.filterTo(mutableSetOf()) { _inputState.value.isLanePressed(it) }
+    val updated = current.advanceTime(elapsedMs, heldLanes)
     _roundState.value = updated
     if (updated.isCompleted) {
       gameplayClock.stop()

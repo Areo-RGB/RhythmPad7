@@ -24,11 +24,19 @@ enum class Difficulty(val displayName: String) {
   }
 }
 
-/** One playable step in seconds from music start. Holds and rolls are judged on their head. */
+enum class StepKind { TAP, HOLD, ROLL }
+
+/**
+ * One playable step in seconds from music start. HOLD/ROLL steps carry their tail
+ * ([endBeat] / [endTimeSeconds]); the head is judged like a tap.
+ */
 data class ChartStep(
   val beat: Double,
   val timeSeconds: Double,
-  val lane: GameLane
+  val lane: GameLane,
+  val kind: StepKind = StepKind.TAP,
+  val endBeat: Double? = null,
+  val endTimeSeconds: Double? = null
 )
 
 data class Chart(
@@ -39,6 +47,7 @@ data class Chart(
   val steps: List<ChartStep>
 ) {
   val noteCount: Int get() = steps.size
+  val holdCount: Int get() = steps.count { it.kind != StepKind.TAP }
 }
 
 data class Song(

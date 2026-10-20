@@ -103,6 +103,9 @@ private val JudgmentTextStyle = TextStyle(
   fontStyle = FontStyle.Italic
 )
 
+/** StepMania HoldJudgment "OK" yellow (JudgmentLine_W2 tone). */
+private val HoldOkColor = Color(0xFFF1E4A2)
+
 /** Tabular digits so the score does not jitter while counting. */
 private val NumberStyle = TextStyle(
   fontFamily = FontFamily.Default,
@@ -304,6 +307,10 @@ fun GameplayScreen(
           JudgmentLine("EXCELLENT", "±70ms", roundState.excellentCount, Judgment.EXCELLENT.color)
           JudgmentLine("GOOD", "±150ms", roundState.goodCount, Judgment.GOOD.color)
           JudgmentLine("MISS", ">150ms", roundState.missCount, Judgment.MISS.color)
+          if (roundState.totalHolds > 0) {
+            JudgmentLine("OK", "holds", roundState.heldCount, HoldOkColor)
+            JudgmentLine("NG", "let go", roundState.letGoCount, Judgment.MISS.color)
+          }
           Spacer(modifier = Modifier.height(4.dp))
           JudgmentLine("MAX COMBO", null, roundState.maxCombo, SmMaxCombo)
         }
@@ -780,7 +787,10 @@ private fun PauseOverlay(
 
 /** StepMania 5 default grade tiers (Themes/default/metrics.ini GradePercentTierNN). */
 private fun gradeDrawable(roundState: GameplayRoundState): Int {
-  if (roundState.judgedNotesCount > 0 && roundState.excellentCount == roundState.judgedNotesCount) {
+  if (roundState.judgedNotesCount > 0 &&
+    roundState.excellentCount == roundState.judgedNotesCount &&
+    roundState.letGoCount == 0
+  ) {
     return R.drawable.sm_grade_tier01
   }
   val pct = roundState.accuracyPercent / 100f
@@ -882,6 +892,10 @@ private fun EvaluationOverlay(
           JudgmentLine("EXCELLENT", null, roundState.excellentCount, Judgment.EXCELLENT.color)
           JudgmentLine("GOOD", null, roundState.goodCount, Judgment.GOOD.color)
           JudgmentLine("MISS", null, roundState.missCount, Judgment.MISS.color)
+          if (roundState.totalHolds > 0) {
+            JudgmentLine("OK", "holds", roundState.heldCount, HoldOkColor)
+            JudgmentLine("NG", "let go", roundState.letGoCount, Judgment.MISS.color)
+          }
           JudgmentLine("MAX COMBO", null, roundState.maxCombo, SmMaxCombo)
         }
       }

@@ -9,6 +9,13 @@ enum class NoteState {
   MISSED
 }
 
+/** StepMania HoldNoteScore for a hold/roll: still running, OK (Held) or NG (LetGo / missed head). */
+enum class HoldResult {
+  ACTIVE,
+  HELD,
+  LET_GO
+}
+
 /**
  * Represents a scheduled arrow note in a chart or practice pattern.
  * Designed to be compatible with future StepMania .sm / .ssc chart loaders.
@@ -21,8 +28,25 @@ data class PracticeNote(
   val state: NoteState = NoteState.PENDING,
   val judgment: Judgment? = null,
   val timingErrorMs: Long? = null,
-  val judgedAtMs: Long? = null
+  val judgedAtMs: Long? = null,
+  /** Tail time for holds/rolls (null = tap). */
+  val holdEndMs: Long? = null,
+  val holdEndBeat: Double? = null,
+  val isRoll: Boolean = false,
+  /** Set once the head is judged; null for taps and unjudged heads. */
+  val holdResult: HoldResult? = null,
+  /** StepMania HoldResult.fLife: 1 = safe, 0 = let go. */
+  val holdLife: Float = 1f,
+  /** Gameplay time the hold was finished as OK/NG (drives the OK/NG flash). */
+  val holdJudgedAtMs: Long? = null
 ) {
+  val isHold: Boolean
+    get() = holdEndMs != null
+
+  /** Last moment this note matters on the field (tail for holds). */
+  val endTimeMs: Long
+    get() = holdEndMs ?: hitTimeMs
+
   val isJudged: Boolean
     get() = state != NoteState.PENDING
 
