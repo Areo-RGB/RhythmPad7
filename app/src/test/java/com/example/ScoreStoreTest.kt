@@ -1,5 +1,6 @@
 package com.example
 
+<<<<<<< HEAD
 import com.example.core.chart.Chart
 import com.example.core.chart.ChartStep
 import com.example.core.chart.Difficulty
@@ -12,15 +13,27 @@ import com.example.core.scores.PRACTICE_CHART_KEY
 import com.example.core.scores.ScoreRecord
 import com.example.core.scores.ScoreStore
 import com.example.core.scores.chartCheck
+=======
+import com.example.core.gameplay.FullComboKind
+import com.example.core.scores.PRACTICE_CHART_KEY
+import com.example.core.scores.ScoreRecord
+import com.example.core.scores.ScoreStore
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 import com.example.core.scores.chartKey
 import com.example.core.scores.practiceChartCheck
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+<<<<<<< HEAD
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+=======
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -28,7 +41,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+<<<<<<< HEAD
 import java.io.IOException
+=======
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -378,6 +394,7 @@ class ScoreStoreTest {
     assertTrue(res.isNewBest)
     assertEquals(practiceRun.key, store.getRecord(PRACTICE_CHART_KEY)?.key)
   }
+<<<<<<< HEAD
 
   @Test
   fun checksumDifferentiatesTimestampsWithSameLowestByte() {
@@ -621,4 +638,6 @@ class ScoreStoreTest {
       readOnlyDir.setWritable(true)
     }
   }
+=======
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 }

@@ -1,18 +1,27 @@
 package com.example.core.scores
 
+<<<<<<< HEAD
 import android.util.AtomicFile
 import android.util.Log
 import com.example.core.chart.Chart
 import com.example.core.chart.Song
 import com.example.core.chart.StepKind
+=======
+import android.util.Log
+import com.example.core.chart.Chart
+import com.example.core.chart.Song
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 import com.example.core.gameplay.FullComboKind
 import com.example.core.gameplay.PracticePatternGenerator
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+<<<<<<< HEAD
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+=======
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 import java.util.Locale
 import java.util.zip.CRC32
 
@@ -121,6 +130,7 @@ data class SubmitResult(
 const val PRACTICE_CHART_KEY = "practice"
 
 /**
+<<<<<<< HEAD
  * Builds the canonical storage key for a chart: `folder#CHART_ID` or `practice`.
  */
 fun chartKey(song: Song?, chart: Chart?): String {
@@ -144,31 +154,58 @@ private fun updateCrc(crc: CRC32, timeMs: Long, laneOrdinal: Int, kindOrdinal: I
 /**
  * Computes the chartCheck string `noteCount:8-hex` from complete step timestamps,
  * lane, note type, and hold/roll end times using deterministic binary encoding.
+=======
+ * Builds the canonical storage key for a chart: `folder#DIFFICULTY` or `practice`.
+ */
+fun chartKey(song: Song?, chart: Chart?): String {
+  if (song == null || chart == null) return PRACTICE_CHART_KEY
+  return "${song.folder}#${chart.difficulty.name}"
+}
+
+/**
+ * Computes the chartCheck string `noteCount:8-hex` from step timestamps and lanes.
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
  */
 fun chartCheck(chart: Chart): String {
   val crc = CRC32()
   for (step in chart.steps) {
     val ms = (step.timeSeconds * 1000.0).toLong()
+<<<<<<< HEAD
     val endMs = step.endTimeSeconds?.let { (it * 1000.0).toLong() } ?: 0L
     updateCrc(crc, ms, step.lane.ordinal, step.kind.ordinal, endMs)
+=======
+    crc.update(ms.toInt())
+    crc.update((ms shr 32).toInt())
+    crc.update(step.lane.ordinal)
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
   }
   return String.format(Locale.US, "%d:%08x", chart.noteCount, crc.value)
 }
 
 /**
+<<<<<<< HEAD
  * Computes the chartCheck string for the built-in practice pattern using
  * complete timestamps, lane, kind, and hold end time.
+=======
+ * Computes the chartCheck string for the built-in practice pattern.
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
  */
 fun practiceChartCheck(): String {
   val notes = PracticePatternGenerator.generatePracticeNotes()
   val crc = CRC32()
   for (note in notes) {
+<<<<<<< HEAD
     val kindOrdinal = when {
       note.isRoll -> StepKind.ROLL.ordinal
       note.isHold -> StepKind.HOLD.ordinal
       else -> StepKind.TAP.ordinal
     }
     updateCrc(crc, note.hitTimeMs, note.lane.ordinal, kindOrdinal, note.holdEndMs ?: 0L)
+=======
+    crc.update(note.hitTimeMs.toInt())
+    crc.update((note.hitTimeMs shr 32).toInt())
+    crc.update(note.lane.ordinal)
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
   }
   return String.format(Locale.US, "%d:%08x", notes.size, crc.value)
 }
@@ -178,11 +215,18 @@ fun chartCheckForRound(song: Song?, chart: Chart?): String =
 
 /**
  * Persistent high-score store saving best results to a JSON file.
+<<<<<<< HEAD
  * Uses [AtomicFile] for atomic writes and handles corrupt/missing files safely.
  */
 class ScoreStore(private val storageFile: File) {
 
   private val atomicFile = AtomicFile(storageFile)
+=======
+ * Uses atomic writes (temp file + rename) and handles corrupt/missing files safely.
+ */
+class ScoreStore(private val storageFile: File) {
+
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
   private val _scores = mutableMapOf<String, ScoreRecord>()
   val scores: Map<String, ScoreRecord>
     get() = synchronized(this) {
@@ -201,6 +245,7 @@ class ScoreStore(private val storageFile: File) {
    * Submits a newly completed run.
    * If the record is the first run, replaces a modified chart, or beats the previous best,
    * it becomes the new best record. In all cases, playCount is incremented.
+<<<<<<< HEAD
    *
    * Only mutates in-memory state after persistence to [storageFile] succeeds via [AtomicFile].
    * Propagates [IOException] on failure.
@@ -211,10 +256,16 @@ class ScoreStore(private val storageFile: File) {
     val candidate = _scores.toMutableMap()
     val isNewBest: Boolean
     val previousBest: ScoreRecord?
+=======
+   */
+  fun submit(record: ScoreRecord): SubmitResult = synchronized(this) {
+    val existing = _scores[record.key]
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 
     // Chart check mismatch: chart changed, drop old record
     if (existing == null || existing.chartCheck != record.chartCheck) {
       val newBest = record.copy(playCount = 1)
+<<<<<<< HEAD
       candidate[record.key] = newBest
       isNewBest = true
       previousBest = null
@@ -265,15 +316,39 @@ class ScoreStore(private val storageFile: File) {
       }
     }
     return _scores.toMap()
+=======
+      _scores[record.key] = newBest
+      save()
+      return SubmitResult(isNewBest = true, previousBest = null)
+    }
+
+    val updatedPlayCount = existing.playCount + 1
+    if (record.isBetterThan(existing)) {
+      val newBest = record.copy(playCount = updatedPlayCount)
+      _scores[record.key] = newBest
+      save()
+      return SubmitResult(isNewBest = true, previousBest = existing)
+    } else {
+      // Existing best preserved; play count incremented
+      val updatedExisting = existing.copy(playCount = updatedPlayCount)
+      _scores[record.key] = updatedExisting
+      save()
+      return SubmitResult(isNewBest = false, previousBest = existing)
+    }
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
   }
 
   private fun load() = synchronized(this) {
     _scores.clear()
     if (!storageFile.exists()) return
     try {
+<<<<<<< HEAD
       val bytes = atomicFile.readFully()
       if (bytes.isEmpty()) return
       val text = String(bytes, Charsets.UTF_8)
+=======
+      val text = storageFile.readText()
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
       if (text.isBlank()) return
       val root = JSONObject(text)
       val keys = root.keys()
@@ -293,6 +368,7 @@ class ScoreStore(private val storageFile: File) {
     }
   }
 
+<<<<<<< HEAD
   @Throws(IOException::class)
   private fun save(candidate: Map<String, ScoreRecord>) {
     val root = JSONObject()
@@ -308,6 +384,24 @@ class ScoreStore(private val storageFile: File) {
     } catch (e: Exception) {
       atomicFile.failWrite(stream)
       if (e is IOException) throw e else throw IOException(e)
+=======
+  private fun save() = synchronized(this) {
+    try {
+      val root = JSONObject()
+      for ((key, record) in _scores) {
+        root.put(key, record.toJson())
+      }
+      val text = root.toString(2)
+      storageFile.parentFile?.mkdirs()
+      val tempFile = File(storageFile.parentFile, "${storageFile.name}.tmp")
+      tempFile.writeText(text)
+      if (!tempFile.renameTo(storageFile)) {
+        tempFile.copyTo(storageFile, overwrite = true)
+        tempFile.delete()
+      }
+    } catch (e: IOException) {
+      Log.e(TAG, "Failed to write score file", e)
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
     }
   }
 

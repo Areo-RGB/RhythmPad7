@@ -72,9 +72,13 @@ import com.example.core.model.MenuButton
 import com.example.core.model.MenuInput
 import com.example.core.scores.PRACTICE_CHART_KEY
 import com.example.core.scores.ScoreRecord
+<<<<<<< HEAD
 import com.example.core.scores.chartCheck
 import com.example.core.scores.chartKey
 import com.example.core.scores.practiceChartCheck
+=======
+import com.example.core.scores.chartKey
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
 import com.example.ui.components.NoPadInputs
 import com.example.ui.components.PadNavigation
 import kotlinx.coroutines.flow.Flow
@@ -237,6 +241,7 @@ fun MusicSelectScreen(
           verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
           SongBanner(song = selected?.song)
+<<<<<<< HEAD
           val currentRecord = if (selected?.song != null && selectedChart != null) {
             bestScores[chartKey(selected.song, selectedChart)]?.takeIf { it.chartCheck == chartCheck(selectedChart) }
           } else if (selected?.song == null) {
@@ -246,6 +251,12 @@ fun MusicSelectScreen(
             song = selected?.song,
             chart = selectedChart,
             bestRecord = currentRecord
+=======
+          SongInfoPane(
+            song = selected?.song,
+            chart = selectedChart,
+            bestRecord = bestScores[chartKey(selected?.song, selectedChart)]
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
           )
           SpeedModPicker(selected = scrollMod, onSelect = onScrollModChange)
           DifficultyList(
@@ -253,10 +264,14 @@ fun MusicSelectScreen(
             charts = charts,
             selected = selectedChart,
             bestScores = bestScores,
+<<<<<<< HEAD
             onSelect = { chart ->
               selectedChartId = chart.chartId
               preferredDifficulty = chart.difficulty.ordinal
             },
+=======
+            onSelect = { preferredDifficulty = it.difficulty.ordinal },
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
             modifier = Modifier.weight(1f)
           )
           SmButton(
@@ -279,7 +294,10 @@ fun MusicSelectScreen(
               entries = entries,
               selectedIndex = selectedIndex,
               preferredDifficulty = preferredDifficulty,
+<<<<<<< HEAD
               selectedChartId = selectedChartId,
+=======
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
               bestScores = bestScores,
               onSelect = { index ->
                 if (index == selectedIndex) startSelected.value() else selectedIndex = index
@@ -446,7 +464,11 @@ private fun DifficultyList(
     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
   ) {
     if (charts.isEmpty()) {
+<<<<<<< HEAD
       val record = bestScores[PRACTICE_CHART_KEY]?.takeIf { it.chartCheck == practiceChartCheck() }
+=======
+      val record = bestScores[PRACTICE_CHART_KEY]
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
       DifficultyRow(
         name = "Beginner",
         meter = 1,
@@ -459,12 +481,16 @@ private fun DifficultyList(
     } else {
       Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         charts.forEach { chart ->
+<<<<<<< HEAD
           val record = bestScores[chartKey(song, chart)]?.takeIf { it.chartCheck == chartCheck(chart) }
           val rowName = if (chart.description.isNotBlank()) {
             "${chart.difficulty.displayName} • ${chart.description}"
           } else {
             chart.difficulty.displayName
           }
+=======
+          val record = bestScores[chartKey(song, chart)]
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
           DifficultyRow(
             name = rowName,
             meter = chart.meter,
@@ -568,7 +594,10 @@ private fun MusicWheel(
   entries: List<WheelEntry>,
   selectedIndex: Int,
   preferredDifficulty: Int,
+<<<<<<< HEAD
   selectedChartId: String?,
+=======
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
   bestScores: Map<String, ScoreRecord>,
   onSelect: (Int) -> Unit
 ) {
@@ -583,6 +612,7 @@ private fun MusicWheel(
     contentPadding = PaddingValues(vertical = 12.dp)
   ) {
     itemsIndexed(entries) { index, entry ->
+<<<<<<< HEAD
       val chart = entry.song?.charts?.firstOrNull { it.chartId == selectedChartId }
         ?: entry.song?.charts?.minByOrNull { kotlin.math.abs(it.difficulty.ordinal - preferredDifficulty) }
       val record = if (chart != null) {
@@ -590,6 +620,10 @@ private fun MusicWheel(
       } else if (entry.song == null) {
         bestScores[PRACTICE_CHART_KEY]?.takeIf { it.chartCheck == practiceChartCheck() }
       } else null
+=======
+      val chart = entry.song?.charts?.minByOrNull { kotlin.math.abs(it.difficulty.ordinal - preferredDifficulty) }
+      val record = bestScores[chartKey(entry.song, chart)]
+>>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
       WheelItem(
         entry = entry,
         isSelected = index == selectedIndex,
