@@ -48,6 +48,12 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
+import com.example.core.model.MenuInput
+import com.example.ui.components.NoPadInputs
+import com.example.ui.components.PadNavigation
+import kotlinx.coroutines.flow.Flow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.example.core.state.GameInputState
 import com.example.ui.components.LaneArrowIcon
 import com.example.ui.components.SmBackground
@@ -76,8 +82,20 @@ fun HomeScreen(
   onStartGame: () -> Unit,
   onOpenSettings: () -> Unit,
   onScanControllers: () -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  menuInputs: Flow<MenuInput> = NoPadInputs
 ) {
+  // Title-menu cursor (dance mat: ↑/↓ move, Start/Circle choose)
+  var cursor by remember { mutableIntStateOf(0) }
+  val actions = listOf(onStartGame, onOpenSettings, onScanControllers)
+  PadNavigation(menuInputs) { input ->
+    when {
+      input == MenuInput.Arrow(GameLane.UP) -> cursor = (cursor + actions.size - 1) % actions.size
+      input == MenuInput.Arrow(GameLane.DOWN) -> cursor = (cursor + 1) % actions.size
+      input.isConfirm -> actions[cursor]()
+    }
+  }
+
   val logoIntro = remember { Animatable(0f) }
   val menuIntro = remember { Animatable(0f) }
   LaunchedEffect(Unit) { logoIntro.animateTo(1f, tween(700, easing = FastOutSlowInEasing)) }
@@ -162,7 +180,7 @@ fun HomeScreen(
             text = "GAME START",
             caption = "StepMania Pad Foundation #1 • 4-panel practice",
             icon = Icons.Default.PlayArrow,
-            highlighted = true,
+            highlighted = cursor == 0,
             onClick = onStartGame,
             modifier = Modifier.testTag("home_button_start_game")
           )
@@ -170,6 +188,7 @@ fun HomeScreen(
             text = "CONTROLLER SETTINGS",
             caption = "Map dance-mat panels & view raw input",
             icon = Icons.Default.Settings,
+            highlighted = cursor == 1,
             onClick = onOpenSettings,
             modifier = Modifier.testTag("home_button_controller_settings")
           )
@@ -177,6 +196,7 @@ fun HomeScreen(
             text = "RESCAN DEVICES",
             caption = "Search for the USB dance mat again",
             icon = Icons.Default.Refresh,
+            highlighted = cursor == 2,
             onClick = onScanControllers,
             modifier = Modifier.testTag("home_button_rescan")
           )
@@ -184,7 +204,7 @@ fun HomeScreen(
       }
 
       SmFooter(
-        text = "Step on the pad to test your panels  •  Tap GAME START to play",
+        text = "Pad: ↑ ↓ choose  •  START to select  •  or tap a menu item",
         trailing = "RhythmPad7 v0.3.0"
       )
     }

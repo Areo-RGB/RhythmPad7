@@ -500,7 +500,9 @@ fun SmButton(
   style: SmButtonStyle = SmButtonStyle.Plum,
   icon: ImageVector? = null,
   height: Dp = 54.dp,
-  fontSize: Int = 17
+  fontSize: Int = 17,
+  /** Pad cursor is on this button (StepMania menu highlight). */
+  focused: Boolean = false
 ) {
   val interaction = remember { MutableInteractionSource() }
   val pressed by interaction.collectIsPressedAsState()
@@ -528,13 +530,17 @@ fun SmButton(
     modifier = modifier
       .height(height)
       .graphicsLayer {
-        val s = if (pressed) 0.96f else 1f
+        val s = when {
+          pressed -> 0.96f
+          focused -> 1.04f
+          else -> 1f
+        }
         scaleX = s
         scaleY = s
       }
       .clip(shape)
       .background(fill)
-      .border(1.5.dp, border, shape)
+      .border(if (focused) 3.dp else 1.5.dp, if (focused) Color.White else border, shape)
       .clickable(interactionSource = interaction, indication = null, onClick = onClick),
     contentAlignment = Alignment.Center
   ) {

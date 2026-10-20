@@ -26,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.core.state.RhythmGameViewModel
 import com.example.ui.screens.ControllerSettingsScreen
 import com.example.ui.screens.GameplayScreen
+import com.example.ui.components.NoPadInputs
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MusicSelectScreen
 import com.example.ui.screens.MusicSelectState
@@ -129,6 +130,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
     when (screen) {
       AppScreen.HOME -> {
         HomeScreen(
+          menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
           controllerInfo = controllerInfo,
           inputState = inputState,
           onStartGame = {
@@ -145,9 +147,9 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
 
       AppScreen.MUSIC_SELECT -> {
         MusicSelectScreen(
+          menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
           songs = songs,
           isLoading = songsLoading,
-          inputState = inputState,
           onStartSong = { song, chart ->
             viewModel.stopPreview()
             viewModel.startSongRound(song, chart)
@@ -171,6 +173,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
 
       AppScreen.GAMEPLAY -> {
         GameplayScreen(
+          menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
           inputState = inputState,
           roundState = roundState,
           controllerInfo = controllerInfo,
@@ -200,6 +203,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
 
       AppScreen.SETTINGS -> {
         ControllerSettingsScreen(
+          menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
           controllerInfo = controllerInfo,
           currentMapping = currentMapping,
           capturingLane = capturingLane,

@@ -21,6 +21,9 @@ import com.example.core.model.ControllerInfo
 import com.example.core.model.ControllerMapping
 import com.example.core.model.GameInputEvent
 import com.example.core.model.GameLane
+import com.example.core.model.MenuInput
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import com.example.core.model.RawInputEvent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -96,7 +99,14 @@ class RhythmGameViewModel(
   private val _isPaused = MutableStateFlow(false)
   val isPaused: StateFlow<Boolean> = _isPaused.asStateFlow()
 
+  /** Pad navigation: fresh arrow presses and menu buttons, consumed by whichever screen is shown. */
+  private val _menuInputs = MutableSharedFlow<MenuInput>(extraBufferCapacity = 16)
+  val menuInputs: SharedFlow<MenuInput> = _menuInputs.asSharedFlow()
+
   init {
+    viewModelScope.launch {
+      controllerManager.menuButtons.collect { _menuInputs.tryEmit(MenuInput.Button(it)) }
+    }
     if (assets != null) {
       viewModelScope.launch {
         _songs.value = withContext(Dispatchers.IO) { SongLibrary.loadFromAssets(assets) }
@@ -117,6 +127,10 @@ class RhythmGameViewModel(
    * While paused, gameplay input transitions and note judgments are strictly rejected.
    */
   fun processInputEvent(event: GameInputEvent) {
+    // Arrow presses also drive menus (the pause menu included), so emit before the pause gate
+    if (event.isPressed && !_inputState.value.isLanePressed(event.lane)) {
+      _menuInputs.tryEmit(MenuInput.Arrow(event.lane))
+    }
     if (_isPaused.value) {
       return
     }

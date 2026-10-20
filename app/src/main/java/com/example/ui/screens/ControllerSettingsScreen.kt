@@ -47,6 +47,12 @@ import androidx.compose.ui.unit.sp
 import com.example.core.model.ControllerInfo
 import com.example.core.model.ControllerMapping
 import com.example.core.model.GameLane
+import com.example.core.model.MenuInput
+import com.example.ui.components.NoPadInputs
+import com.example.ui.components.PadNavigation
+import kotlinx.coroutines.flow.Flow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.example.core.model.RawInputEvent
 import com.example.core.state.GameInputState
 import com.example.ui.components.ChamferShape
@@ -87,8 +93,23 @@ fun ControllerSettingsScreen(
   onResetDefaults: () -> Unit,
   onScanControllers: () -> Unit,
   onNavigateBack: () -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  menuInputs: Flow<MenuInput> = NoPadInputs
 ) {
+  // Pad control: ↑/↓ choose a direction row, Start/Circle remap it, Select/Cross back
+  var cursor by remember { mutableIntStateOf(0) }
+  PadNavigation(menuInputs) { input ->
+    when {
+      input == MenuInput.Arrow(GameLane.UP) -> cursor = (cursor + 3) % 4
+      input == MenuInput.Arrow(GameLane.DOWN) -> cursor = (cursor + 1) % 4
+      input.isConfirm -> onStartCapture(GameLane.entries[cursor])
+      input.isBack -> {
+        onCancelCapture()
+        onNavigateBack()
+      }
+    }
+  }
+
   BackHandler(onBack = {
     onCancelCapture()
     onNavigateBack()
@@ -165,7 +186,11 @@ fun ControllerSettingsScreen(
                 bindingsText = bindings.joinToString(" • ") { it.description }.ifEmpty { "Unassigned" },
                 isPressed = inputState.isLanePressed(lane),
                 isListening = capturingLane == lane,
-                onRemap = { onStartCapture(lane) },
+                isFocused = cursor == lane.ordinal,
+                onRemap = {
+                  cursor = lane.ordinal
+                  onStartCapture(lane)
+                },
                 onCancel = onCancelCapture
               )
             }
@@ -283,7 +308,7 @@ fun ControllerSettingsScreen(
       }
 
       SmFooter(
-        text = "Tap REMAP, then step on the panel to bind it  •  Back returns to the title menu",
+        text = "Pad: ↑ ↓ choose  •  START remap, then step the panel  •  SELECT back",
         trailing = "RhythmPad7 v0.3.0"
       )
     }
@@ -297,6 +322,7 @@ private fun MappingLaneRow(
   bindingsText: String,
   isPressed: Boolean,
   isListening: Boolean,
+  isFocused: Boolean,
   onRemap: () -> Unit,
   onCancel: () -> Unit
 ) {
@@ -322,8 +348,12 @@ private fun MappingLaneRow(
         }
       )
       .border(
-        width = if (isListening) 2.dp else 1.dp,
-        color = if (isListening) Color.White.copy(alpha = pulse) else Color(0x33FFFFFF),
+        width = if (isListening || isFocused) 2.dp else 1.dp,
+        color = when {
+          isListening -> Color.White.copy(alpha = pulse)
+          isFocused -> Color.White
+          else -> Color(0x33FFFFFF)
+        },
         shape = shape
       )
       .padding(start = 26.dp, end = 14.dp),

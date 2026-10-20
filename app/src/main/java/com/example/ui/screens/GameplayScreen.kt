@@ -67,6 +67,13 @@ import com.example.core.gameplay.GameplayRoundState
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
 import com.example.core.model.Judgment
+import com.example.core.model.MenuButton
+import com.example.core.model.MenuInput
+import com.example.ui.components.NoPadInputs
+import com.example.ui.components.PadNavigation
+import kotlinx.coroutines.flow.Flow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.example.core.state.GameInputState
 import com.example.ui.components.ChamferShape
 import com.example.ui.components.DebugOverlayView
@@ -139,9 +146,37 @@ fun GameplayScreen(
   onResume: () -> Unit,
   onRestartRound: () -> Unit,
   onNavigateBack: () -> Unit,
-  modifier: Modifier = Modifier
+  modifier: Modifier = Modifier,
+  menuInputs: Flow<MenuInput> = NoPadInputs
 ) {
   BackHandler(onBack = onNavigateBack)
+
+  // Pad control: Start pauses; the pause menu and results take arrows + Start/Select like StepMania
+  var pauseCursor by remember { mutableIntStateOf(0) }
+  var resultCursor by remember { mutableIntStateOf(0) }
+  LaunchedEffect(isPaused) { if (isPaused) pauseCursor = 0 }
+  LaunchedEffect(roundState.isCompleted) { if (roundState.isCompleted) resultCursor = 0 }
+  PadNavigation(menuInputs) { input ->
+    when {
+      roundState.isCompleted -> when {
+        input is MenuInput.Arrow -> resultCursor = 1 - resultCursor
+        input.isConfirm -> if (resultCursor == 0) onRestartRound() else onNavigateBack()
+        input.isBack -> onNavigateBack()
+      }
+      isPaused -> when {
+        input == MenuInput.Arrow(GameLane.UP) -> pauseCursor = (pauseCursor + 2) % 3
+        input == MenuInput.Arrow(GameLane.DOWN) -> pauseCursor = (pauseCursor + 1) % 3
+        input.isConfirm -> when (pauseCursor) {
+          0 -> onResume()
+          1 -> onRestartRound()
+          else -> onNavigateBack()
+        }
+        input.isBack -> onResume()
+      }
+      // During play only Start does anything; arrows are notes
+      input == MenuInput.Button(MenuButton.START) -> onTogglePause()
+    }
+  }
 
   // Authoritative monotonic clock sync on every vsync frame (eliminates 60/90/120/144Hz rounding drift)
   LaunchedEffect(roundState.isRunning, roundState.isPaused, roundState.isCompleted) {
@@ -323,6 +358,7 @@ fun GameplayScreen(
     if (isPaused && !roundState.isCompleted) {
       PauseOverlay(
         roundState = roundState,
+        cursor = pauseCursor,
         onResume = onResume,
         onRestartRound = onRestartRound,
         onNavigateBack = onNavigateBack
@@ -332,6 +368,7 @@ fun GameplayScreen(
     if (roundState.isCompleted) {
       EvaluationOverlay(
         roundState = roundState,
+        cursor = resultCursor,
         onRestartRound = onRestartRound,
         onNavigateBack = onNavigateBack
       )
@@ -724,6 +761,7 @@ private fun JudgmentLine(label: String, windowText: String?, count: Int, color: 
 @Composable
 private fun PauseOverlay(
   roundState: GameplayRoundState,
+  cursor: Int,
   onResume: () -> Unit,
   onRestartRound: () -> Unit,
   onNavigateBack: () -> Unit
@@ -741,7 +779,7 @@ private fun PauseOverlay(
       contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp)
     ) {
       Text(
-        text = String.format(Locale.US, "Song position %.2fs — dance-mat input is paused.", roundState.currentGameTimeMs / 1000.0),
+        text = String.format(Locale.US, "Song position %.2fs  •  Pad: ↑ ↓ choose, START select, SELECT continue", roundState.currentGameTimeMs / 1000.0),
         style = TextStyle(
           fontFamily = OpenSans,
           fontWeight = FontWeight.SemiBold,
@@ -756,6 +794,7 @@ private fun PauseOverlay(
         text = "CONTINUE",
         icon = Icons.Default.PlayArrow,
         style = SmButtonStyle.Gold,
+        focused = cursor == 0,
         onClick = onResume,
         modifier = Modifier
           .fillMaxWidth()
@@ -766,6 +805,7 @@ private fun PauseOverlay(
         text = "RESTART SONG",
         icon = Icons.Default.Replay,
         style = SmButtonStyle.Plum,
+        focused = cursor == 1,
         onClick = onRestartRound,
         modifier = Modifier
           .fillMaxWidth()
@@ -776,6 +816,7 @@ private fun PauseOverlay(
         text = "FORFEIT",
         icon = Icons.Default.Home,
         style = SmButtonStyle.Dark,
+        focused = cursor == 2,
         onClick = onNavigateBack,
         modifier = Modifier
           .fillMaxWidth()
@@ -816,6 +857,7 @@ private fun gradeDrawable(roundState: GameplayRoundState): Int {
 @Composable
 private fun EvaluationOverlay(
   roundState: GameplayRoundState,
+  cursor: Int,
   onRestartRound: () -> Unit,
   onNavigateBack: () -> Unit
 ) {
@@ -910,6 +952,7 @@ private fun EvaluationOverlay(
           text = "PLAY AGAIN",
           icon = Icons.Default.Replay,
           style = SmButtonStyle.Gold,
+          focused = cursor == 0,
           onClick = onRestartRound,
           modifier = Modifier
             .weight(1f)
@@ -919,6 +962,7 @@ private fun EvaluationOverlay(
           text = "SELECT MUSIC",
           icon = Icons.Default.Home,
           style = SmButtonStyle.Dark,
+          focused = cursor == 1,
           onClick = onNavigateBack,
           modifier = Modifier
             .weight(1f)

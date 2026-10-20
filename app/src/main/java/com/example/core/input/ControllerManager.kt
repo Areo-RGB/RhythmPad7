@@ -10,6 +10,7 @@ import com.example.core.model.ControllerInfo
 import com.example.core.model.ControllerMapping
 import com.example.core.model.GameInputEvent
 import com.example.core.model.GameLane
+import com.example.core.model.MenuButton
 import com.example.core.model.InputBinding
 import com.example.core.model.InputSource
 import com.example.core.model.RawInputEvent
@@ -48,6 +49,10 @@ class ControllerManager(
   // Stream of raw input events for debugging and mapping telemetry
   private val _rawInputEvents = MutableSharedFlow<RawInputEvent>(extraBufferCapacity = 64)
   val rawInputEvents: SharedFlow<RawInputEvent> = _rawInputEvents.asSharedFlow()
+
+  // Mat menu buttons (Start/Select/Circle/Cross/Square/Triangle), fresh presses only
+  private val _menuButtons = MutableSharedFlow<MenuButton>(extraBufferCapacity = 16)
+  val menuButtons: SharedFlow<MenuButton> = _menuButtons.asSharedFlow()
 
   // Tracks currently held keycodes to eliminate duplicate ACTION_DOWN repeats
   private val pressedKeyCodes = mutableSetOf<Int>()
@@ -223,10 +228,16 @@ class ControllerManager(
           )
           return true
         }
+        val menuButton = MenuButton.fromKeyCode(keyCode)
+        if (menuButton != null) {
+          _menuButtons.tryEmit(menuButton)
+          return true
+        }
       }
 
       KeyEvent.ACTION_UP -> {
         pressedKeyCodes.remove(keyCode)
+        if (findLaneForKey(keyCode) == null && MenuButton.fromKeyCode(keyCode) != null) return true
         val targetLane = findLaneForKey(keyCode)
         if (targetLane != null) {
           _gameInputEvents.tryEmit(

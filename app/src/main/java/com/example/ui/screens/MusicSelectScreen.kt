@@ -64,7 +64,11 @@ import com.example.core.chart.Difficulty
 import com.example.core.chart.Song
 import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
-import com.example.core.state.GameInputState
+import com.example.core.model.MenuButton
+import com.example.core.model.MenuInput
+import com.example.ui.components.NoPadInputs
+import com.example.ui.components.PadNavigation
+import kotlinx.coroutines.flow.Flow
 import com.example.ui.components.ChamferShape
 import com.example.ui.components.SmBackground
 import com.example.ui.components.SmButton
@@ -112,7 +116,6 @@ private data class WheelEntry(val song: Song?)
 fun MusicSelectScreen(
   songs: List<Song>,
   isLoading: Boolean,
-  inputState: GameInputState,
   onStartSong: (Song, Chart) -> Unit,
   onStartPractice: () -> Unit,
   onPreview: (Song?) -> Unit,
@@ -120,7 +123,8 @@ fun MusicSelectScreen(
   modifier: Modifier = Modifier,
   state: MusicSelectState = remember { MusicSelectState() },
   scrollMod: ScrollMod = ScrollMod.DEFAULT,
-  onScrollModChange: (ScrollMod) -> Unit = {}
+  onScrollModChange: (ScrollMod) -> Unit = {},
+  menuInputs: Flow<MenuInput> = NoPadInputs
 ) {
   BackHandler(onBack = onNavigateBack)
 
@@ -161,30 +165,26 @@ fun MusicSelectScreen(
   }
   DisposableEffect(Unit) { onDispose { onPreview(null) } }
 
-  // Dance-mat navigation (press counters increase once per fresh step)
-  val latestInput by rememberUpdatedState(inputState)
-  val lastCounts = remember { IntArray(4) { -1 } }
-  LaunchedEffect(inputState.pressCounts) {
-    val counts = GameLane.entries.map { inputState.getPressCount(it) }
-    if (lastCounts[0] < 0) {
-      counts.forEachIndexed { i, c -> lastCounts[i] = c }
-      return@LaunchedEffect
-    }
-    val stepped = GameLane.entries.filter { counts[it.ordinal] > lastCounts[it.ordinal] }
-    counts.forEachIndexed { i, c -> lastCounts[i] = c }
-    if (stepped.isEmpty()) return@LaunchedEffect
-    // Short grace period so a LEFT+RIGHT jump is not read as two single steps
-    delay(70)
-    val now = latestInput
-    if (now.isLanePressed(GameLane.LEFT) && now.isLanePressed(GameLane.RIGHT)) {
-      startSelected.value()
-      return@LaunchedEffect
-    }
-    when (stepped.last()) {
-      GameLane.UP -> moveSong(-1)
-      GameLane.DOWN -> moveSong(1)
-      GameLane.LEFT -> moveDifficulty(-1)
-      GameLane.RIGHT -> moveDifficulty(1)
+  // Dance-mat navigation (StepMania ScreenSelectMusic): ↑/↓ song, ←/→ difficulty,
+  // Start/Circle play, Select/Cross back, Triangle/Square speed down/up
+  PadNavigation(menuInputs) { input ->
+    when (input) {
+      is MenuInput.Arrow -> when (input.lane) {
+        GameLane.UP -> moveSong(-1)
+        GameLane.DOWN -> moveSong(1)
+        GameLane.LEFT -> moveDifficulty(-1)
+        GameLane.RIGHT -> moveDifficulty(1)
+      }
+      is MenuInput.Button -> when {
+        input.isConfirm -> startSelected.value()
+        input.isBack -> onNavigateBack()
+        input.button == MenuButton.TRIANGLE || input.button == MenuButton.SQUARE -> {
+          val presets = ScrollMod.PRESETS
+          val idx = presets.indexOf(scrollMod).coerceAtLeast(0)
+          val delta = if (input.button == MenuButton.SQUARE) 1 else -1
+          onScrollModChange(presets[(idx + delta + presets.size) % presets.size])
+        }
+      }
     }
   }
 
@@ -251,7 +251,7 @@ fun MusicSelectScreen(
       }
 
       SmFooter(
-        text = "Pad: ↑ ↓ choose song  •  ← → difficulty  •  jump ← + → to start  •  tap a song twice to play",
+        text = "Pad: ↑ ↓ song  •  ← → difficulty  •  START play  •  SELECT back  •  △ □ speed",
         trailing = "RhythmPad7 v0.3.0"
       )
     }
