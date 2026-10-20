@@ -7,6 +7,11 @@
 
 ---
 
+## StepMania Source Reference
+- `stepmania-pcapp/` (the PC StepMania 5 source) is git-ignored. Verbatim excerpts of already-ported code (MSD/TimingData, scrolling, holds) are in `docs/stepmania-reference/`; each planned feature has a self-contained folder with plan + excerpts (e.g. `docs/roadmap-5-7-judgments-and-high-scores/`). Read those before changing gameplay rules.
+
+---
+
 ## Core Architectural Invariants (DO NOT BREAK)
 
 1. **Physical USB Dance Mat Priority & Device ID Filtering (`ControllerManager.kt`)**
