@@ -316,7 +316,6 @@ class RhythmGameViewModel(
         playCount = 1
       )
       scoreStore?.let { store ->
-<<<<<<< HEAD
         try {
           val result = store.submit(record)
           _bestScores.value = store.scores
@@ -324,11 +323,6 @@ class RhythmGameViewModel(
         } catch (e: Exception) {
           Log.e(TAG, "Failed to persist score record; not publishing unpersisted result", e)
         }
-=======
-        val result = store.submit(record)
-        _bestScores.value = store.scores
-        _lastResult.value = result
->>>>>>> 1d8a8080040e2bcd0e69e81b883b8e67eefabfa9
       }
     }
   }
