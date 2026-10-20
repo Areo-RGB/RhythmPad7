@@ -6,6 +6,7 @@ import com.example.core.chart.SimfileLoader
 import com.example.core.chart.SongLibrary
 import com.example.core.chart.TimingData
 import com.example.core.gameplay.GameplayRoundState
+import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
 import java.io.File
 import org.junit.Assert.assertEquals
@@ -91,6 +92,90 @@ class SimfileParserTest {
     assertEquals(3.0, t.timeAtBeat(5.0), 1e-9)
     assertTrue(t.isWarpedBeat(3.0))
     assertFalse(t.isWarpedBeat(4.0))
+  }
+
+  // ---------------------------------------------------------------- Scroll / speed
+
+  @Test
+  fun scrollsScaleDisplayedBeat() {
+    val t = TimingData(
+      offsetSeconds = 0.0,
+      bpms = listOf(0.0 to 120.0),
+      scrolls = listOf(0.0 to 1.0, 4.0 to 0.5, 8.0 to 0.0, 10.0 to 2.0)
+    )
+    assertEquals(4.0, t.displayedBeat(4.0), 1e-9)
+    assertEquals(6.0, t.displayedBeat(8.0), 1e-9) // half speed for 4 beats
+    assertEquals(6.0, t.displayedBeat(10.0), 1e-9) // frozen
+    assertEquals(8.0, t.displayedBeat(11.0), 1e-9) // double speed
+  }
+
+  @Test
+  fun speedsTweenOverTheirDelay() {
+    val t = TimingData(
+      offsetSeconds = 0.0,
+      bpms = listOf(0.0 to 60.0), // 1 beat = 1 s
+      speeds = TimingData.parseSpeeds("0=1=0=0,4=2=2=0")
+    )
+    assertEquals(1.0, t.displayedSpeedPercent(songBeat = 2.0, musicSeconds = 2.0), 1e-9)
+    // Halfway through the 2-beat tween from 1x to 2x
+    assertEquals(1.5, t.displayedSpeedPercent(songBeat = 5.0, musicSeconds = 5.0), 1e-9)
+    assertEquals(2.0, t.displayedSpeedPercent(songBeat = 7.0, musicSeconds = 7.0), 1e-9)
+  }
+
+  @Test
+  fun beatSpacingFollowsBpmChangesButCModDoesNot() {
+    // 120 BPM, halving to 60 BPM at beat 8
+    val ssc = $$"""
+      #TITLE:Tempo;
+      #MUSIC:a.ogg;
+      #OFFSET:0;
+      #BPMS:0=120,8=60;
+      #NOTEDATA:;
+      #STEPSTYPE:dance-single;
+      #DIFFICULTY:Easy;
+      #METER:1;
+      #NOTES:
+      1000
+      0000
+      0000
+      0000
+      ,
+      0000
+      0000
+      0000
+      0000
+      ,
+      1000
+      0100
+      0010
+      0001
+      ;
+    """.trimIndent()
+    val song = SimfileLoader.load(ssc, isSsc = true, folder = "songs/t")
+    val chart = song.charts.single()
+    val x1 = GameplayRoundState.createSongRound(song, chart, scrollMod = ScrollMod.X(1.0))
+    val now = x1.gameTimeAtBeat(8.0)
+    // After the slowdown, consecutive beats are still exactly 1 beat apart on screen (StepMania)
+    val n1 = x1.notes[1]
+    val n2 = x1.notes[2]
+    assertEquals(0.0, x1.scrollUnits(n1.beat, n1.hitTimeMs, now), 1e-6)
+    assertEquals(1.0, x1.scrollUnits(n2.beat, n2.hitTimeMs, now), 1e-6)
+
+    // C120 uses time: 1 s at 60 BPM = 2 units at C120
+    val c120 = x1.copy(scrollMod = ScrollMod.C(120))
+    assertEquals(2.0, c120.scrollUnits(n2.beat, n2.hitTimeMs, now), 1e-6)
+
+    // M240 against read BPM 120 = 2x
+    val m240 = x1.copy(scrollMod = ScrollMod.M(240))
+    assertEquals(120.0, song.readBpm, 1e-9)
+    assertEquals(2.0, m240.scrollUnits(n2.beat, n2.hitTimeMs, now), 1e-6)
+  }
+
+  @Test
+  fun scrollModRoundTrip() {
+    for (mod in ScrollMod.PRESETS) {
+      assertEquals(mod, ScrollMod.parse(mod.serialize()))
+    }
   }
 
   // ---------------------------------------------------------------- Loader

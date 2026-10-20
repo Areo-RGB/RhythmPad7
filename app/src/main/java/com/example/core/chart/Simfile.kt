@@ -53,6 +53,8 @@ data class Song(
   val sampleStartSeconds: Double,
   val sampleLengthSeconds: Double,
   val displayBpm: String,
+  /** Highest displayed BPM; M-mods scale scroll speed against it (PlayerState::m_fReadBPM). */
+  val readBpm: Double,
   val songTiming: TimingData,
   val charts: List<Chart>
 ) {

@@ -119,6 +119,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
   val songs by viewModel.songs.collectAsStateWithLifecycle()
   val songsLoading by viewModel.songsLoading.collectAsStateWithLifecycle()
   val musicSelectState = remember { MusicSelectState() }
+  val scrollMod by viewModel.scrollMod.collectAsStateWithLifecycle()
 
   AnimatedContent(
     targetState = currentScreen,
@@ -162,7 +163,9 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
             viewModel.stopPreview()
             currentScreen = AppScreen.HOME
           },
-          state = musicSelectState
+          state = musicSelectState,
+          scrollMod = scrollMod,
+          onScrollModChange = { viewModel.setScrollMod(it) }
         )
       }
 

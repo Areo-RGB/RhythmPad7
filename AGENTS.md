@@ -35,6 +35,7 @@
 5. **Song Charts & Audio Lock (`core/chart/`, `core/audio/`, `RhythmGameViewModel.syncAudio`)**
    - Songs live in `app/src/main/assets/songs/<folder>/` (`.ssc` preferred, `.sm` fallback). `MsdFile` and `TimingData` are ports of StepMania's `MsdFile.cpp` / `TimingData.cpp`; keep stop/delay/warp ordering identical and covered by `SimfileParserTest`.
    - Note hit times are `musicStartMs + TimingData.timeAtBeat(beat) * 1000`. The music starts when the clock reaches `musicStartMs`; afterwards the clock is locked to ExoPlayer's position only via `GameplayClock.nudge()` (anchor shift), never by accumulating deltas.
+   - Arrow positions use StepMania beat spacing (`GameplayRoundState.scrollUnits`: SCROLLS via `displayedBeat`, SPEEDS via `displayedSpeedPercent`, × X/M multiplier); only C-mods use time spacing. Judgments always use `hitTimeMs`, never screen position.
    - The music-select preview must never stop or replace gameplay audio (`SongAudio.stopPreview()` only stops previews; `previewSong` is ignored while a round runs).
 
 6. **Root APK Sync (`app/build.gradle.kts` & `copy_debug_apk.sh`)**

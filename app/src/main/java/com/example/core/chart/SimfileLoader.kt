@@ -77,6 +77,9 @@ object SimfileLoader {
         "${bpms.min().roundToInt()} – ${bpms.max().roundToInt()}"
       }
 
+    val readBpm = header["DISPLAYBPM"]?.trim()?.split(':')?.mapNotNull { it.trim().toDoubleOrNull() }
+      ?.maxOrNull()?.takeIf { it > 0 } ?: timing.maxBpm
+
     return Song(
       folder = folder,
       title = header["TITLE"]?.trim().orEmpty().ifEmpty { folder.substringAfterLast('/') },
@@ -88,6 +91,7 @@ object SimfileLoader {
       sampleStartSeconds = header["SAMPLESTART"]?.trim()?.toDoubleOrNull() ?: 0.0,
       sampleLengthSeconds = header["SAMPLELENGTH"]?.trim()?.toDoubleOrNull()?.takeIf { it > 0 } ?: 12.0,
       displayBpm = displayBpm,
+      readBpm = readBpm,
       songTiming = timing,
       charts = charts.sortedWith(compareBy({ it.difficulty.ordinal }, { it.meter }))
     )
@@ -98,7 +102,9 @@ object SimfileLoader {
     bpms = TimingData.parsePairs(tags["BPMS"]),
     stops = TimingData.parsePairs(tags["STOPS"] ?: tags["FREEZES"]),
     delays = TimingData.parsePairs(tags["DELAYS"]),
-    warps = TimingData.parsePairs(tags["WARPS"])
+    warps = TimingData.parsePairs(tags["WARPS"]),
+    scrolls = TimingData.parsePairs(tags["SCROLLS"]),
+    speeds = TimingData.parseSpeeds(tags["SPEEDS"])
   )
 
   private fun buildSscChart(
@@ -109,7 +115,7 @@ object SimfileLoader {
   ): Chart? {
     if (tags["STEPSTYPE"]?.trim()?.lowercase(Locale.US) != "dance-single") return null
     // SSC "split timing": a chart that declares its own timing tags overrides the song's.
-    val timingKeys = listOf("OFFSET", "BPMS", "STOPS", "DELAYS", "WARPS")
+    val timingKeys = listOf("OFFSET", "BPMS", "STOPS", "DELAYS", "WARPS", "SCROLLS", "SPEEDS")
     val timing = if (timingKeys.any { tags.containsKey(it) }) {
       buildTiming(timingKeys.associateWith { key -> tags[key] ?: header[key].orEmpty() })
     } else {

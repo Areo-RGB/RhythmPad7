@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -60,6 +62,7 @@ import com.example.R
 import com.example.core.chart.Chart
 import com.example.core.chart.Difficulty
 import com.example.core.chart.Song
+import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
 import com.example.core.state.GameInputState
 import com.example.ui.components.ChamferShape
@@ -115,7 +118,9 @@ fun MusicSelectScreen(
   onPreview: (Song?) -> Unit,
   onNavigateBack: () -> Unit,
   modifier: Modifier = Modifier,
-  state: MusicSelectState = remember { MusicSelectState() }
+  state: MusicSelectState = remember { MusicSelectState() },
+  scrollMod: ScrollMod = ScrollMod.DEFAULT,
+  onScrollModChange: (ScrollMod) -> Unit = {}
 ) {
   BackHandler(onBack = onNavigateBack)
 
@@ -211,6 +216,7 @@ fun MusicSelectScreen(
         ) {
           SongBanner(song = selected?.song)
           SongInfoPane(song = selected?.song, chart = selectedChart)
+          SpeedModPicker(selected = scrollMod, onSelect = onScrollModChange)
           DifficultyList(
             charts = charts,
             selected = selectedChart,
@@ -330,6 +336,45 @@ private fun SongInfoPane(song: Song?, chart: Chart?) {
   }
 }
 
+/** ScreenPlayerOptions "Speed" row: tap a chip (M = constant read speed, x = multiplier, C = constant). */
+@Composable
+private fun SpeedModPicker(selected: ScrollMod, onSelect: (ScrollMod) -> Unit) {
+  SmPanel(
+    modifier = Modifier.fillMaxWidth(),
+    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Text(
+        text = "SPEED",
+        style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp, color = SmTextMuted),
+        modifier = Modifier.width(52.dp)
+      )
+      LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        items(ScrollMod.PRESETS) { mod ->
+          val isSelected = mod == selected
+          val shape = ChamferShape(7.dp)
+          Box(
+            modifier = Modifier
+              .height(30.dp)
+              .clip(shape)
+              .background(if (isSelected) SmP1Blue else Color(0x26FFFFFF))
+              .border(1.dp, if (isSelected) Color.White else Color(0x33FFFFFF), shape)
+              .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onSelect(mod) }
+              .padding(horizontal = 12.dp)
+              .testTag("speed_mod_${mod.serialize()}"),
+            contentAlignment = Alignment.Center
+          ) {
+            Text(
+              text = mod.label,
+              style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+            )
+          }
+        }
+      }
+    }
+  }
+}
+
 @Composable
 private fun InfoStat(label: String, value: String) {
   Column(horizontalAlignment = Alignment.End) {
@@ -355,7 +400,7 @@ private fun DifficultyList(
   SmPanel(
     modifier = modifier.fillMaxWidth(),
     title = "DIFFICULTY",
-    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
   ) {
     if (charts.isEmpty()) {
       DifficultyRow(
@@ -367,7 +412,7 @@ private fun DifficultyList(
         onClick = {}
       )
     } else {
-      Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+      Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         charts.forEach { chart ->
           DifficultyRow(
             name = chart.difficulty.displayName,
@@ -396,7 +441,7 @@ private fun DifficultyRow(
   Row(
     modifier = Modifier
       .fillMaxWidth()
-      .height(36.dp)
+      .height(31.dp)
       .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClick),
     verticalAlignment = Alignment.CenterVertically
   ) {

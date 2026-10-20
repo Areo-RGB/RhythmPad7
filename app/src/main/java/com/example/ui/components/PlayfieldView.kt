@@ -20,10 +20,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.core.gameplay.GameplayRoundState
+import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
 import com.example.core.model.Judgment
 import com.example.core.model.NoteState
-import com.example.core.model.PracticeNote
 import com.example.core.state.GameInputState
 import com.example.ui.canvas.NoteSkinDrawing
 import com.example.ui.canvas.rememberNoteSkin
@@ -33,6 +33,9 @@ import com.example.ui.canvas.rememberNoteSkin
  * Ensures all 4 lanes have equal width, receptors and scrolling notes share identical
  * lane center coordinates, and the highway stays constrained to 560–640 dp on landscape tablets.
  */
+private const val NOTE_LOOKAHEAD_MS = 20_000L
+private const val NOTE_LOOKBEHIND_MS = 4_000L
+
 object PlayfieldGeometry {
   const val MIN_HIGHWAY_WIDTH_DP = 560f
   const val MAX_HIGHWAY_WIDTH_DP = 640f
@@ -126,9 +129,10 @@ fun PlayfieldView(
       val receptorY = canvasHeight * PlayfieldGeometry.RECEPTOR_Y_FRACTION
       val arrowSize = PlayfieldGeometry.arrowSizePx(laneWidth)
       val currentGameTimeMs = roundState.currentGameTimeMs
-      val travelDurationMs = roundState.travelDurationMs
 
       val currentBeat = roundState.beatAt(currentGameTimeMs)
+      // StepMania beat spacing: 1x shows BEATS_ON_SCREEN_AT_1X beats between receptors and bottom
+      val pixelsPerBeat = (canvasHeight - receptorY) / ScrollMod.BEATS_ON_SCREEN_AT_1X.toFloat()
       val beatPhase = (((currentBeat % 1.0) + 1.0) % 1.0).toFloat()
 
       // 0. ScreenFilter: dark backing plate behind the note field, softened at the edges
@@ -174,13 +178,12 @@ fun PlayfieldView(
       for (m in 0..16) {
         val measureBeat = firstMeasureBeat + m * 4.0
         if (measureBeat < 0.0) continue
-        val lineY = PracticeNote.calculateNoteY(
+        val lineY = receptorY + pixelsPerBeat * roundState.scrollUnits(
+          noteBeat = measureBeat,
           noteHitTimeMs = roundState.gameTimeAtBeat(measureBeat),
-          currentGameTimeMs = currentGameTimeMs,
-          receptorY = receptorY,
-          playfieldHeight = canvasHeight,
-          travelDurationMs = travelDurationMs
-        )
+          nowMs = currentGameTimeMs,
+          songBeat = currentBeat
+        ).toFloat()
         if (lineY > canvasHeight) break
         if (lineY >= receptorY) {
           drawLine(
@@ -215,12 +218,16 @@ fun PlayfieldView(
 
         when (note.state) {
           NoteState.PENDING, NoteState.MISSED -> {
-            val noteY = note.calculateY(
-              currentGameTimeMs = currentGameTimeMs,
-              receptorY = receptorY,
-              playfieldHeight = canvasHeight,
-              travelDurationMs = travelDurationMs
-            )
+            // Skip far-future / long-passed notes before the per-note scroll math
+            if (note.hitTimeMs - currentGameTimeMs > NOTE_LOOKAHEAD_MS ||
+              currentGameTimeMs - note.hitTimeMs > NOTE_LOOKBEHIND_MS
+            ) continue
+            val noteY = receptorY + pixelsPerBeat * roundState.scrollUnits(
+              noteBeat = note.beat,
+              noteHitTimeMs = note.hitTimeMs,
+              nowMs = currentGameTimeMs,
+              songBeat = currentBeat
+            ).toFloat()
             if (noteY in visibleMinY..visibleMaxY) {
               NoteSkinDrawing.drawNote(
                 drawScope = this,

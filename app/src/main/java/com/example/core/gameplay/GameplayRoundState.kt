@@ -76,7 +76,10 @@ data class GameplayRoundState(
   val judgmentSequence: Int = 0,
   val meta: RoundMeta = RoundMeta(),
   val musicStartMs: Long? = null,
-  val timing: TimingData? = null
+  val timing: TimingData? = null,
+  val scrollMod: ScrollMod = ScrollMod.DEFAULT,
+  /** Highest displayed BPM (M-mod reference). */
+  val readBpm: Double = bpm.toDouble()
 ) {
   val isSongRound: Boolean
     get() = musicStartMs != null && timing != null
@@ -90,6 +93,29 @@ data class GameplayRoundState(
     } else {
       (gameTimeMs - beatZeroTimeMs) * bpm / 60_000.0
     }
+  }
+
+  /**
+   * StepMania ArrowEffects::GetYOffset (without accel/effect mods), in "1x beats": how far below
+   * the receptors a note at [noteBeat] / [noteHitTimeMs] sits at [nowMs] (negative once passed).
+   * Multiply by the note field's pixels per beat (`travel / ScrollMod.BEATS_ON_SCREEN_AT_1X`).
+   *
+   * X/M mods use beat spacing (`displayedBeat(note) - displayedBeat(song)`, scaled by SPEEDS), so
+   * arrows follow BPM changes, stops, delays and SCROLLS. C mods use time spacing.
+   */
+  fun scrollUnits(noteBeat: Double, noteHitTimeMs: Long, nowMs: Long, songBeat: Double = beatAt(nowMs)): Double {
+    val mod = scrollMod
+    if (mod is ScrollMod.C) {
+      return (noteHitTimeMs - nowMs) / 1000.0 * mod.bpm / 60.0
+    }
+    val t = timing
+    val beats = if (t != null) {
+      val musicSeconds = (nowMs - (musicStartMs ?: 0L)) / 1000.0
+      (t.displayedBeat(noteBeat) - t.displayedBeat(songBeat)) * t.displayedSpeedPercent(songBeat, musicSeconds)
+    } else {
+      noteBeat - songBeat
+    }
+    return beats * mod.beatMultiplier(readBpm)
   }
 
   /** Gameplay time at which [beat] is reached. */
@@ -331,7 +357,8 @@ data class GameplayRoundState(
     fun createSongRound(
       song: Song,
       chart: Chart,
-      isRunning: Boolean = true
+      isRunning: Boolean = true,
+      scrollMod: ScrollMod = ScrollMod.DEFAULT
     ): GameplayRoundState {
       val firstStepMs = chart.steps.minOfOrNull { (it.timeSeconds * 1000.0).roundToLong() } ?: 0L
       val musicStartMs = maxOf(SONG_MIN_LEAD_IN_MS, SONG_FIRST_STEP_MIN_MS - firstStepMs)
@@ -361,14 +388,17 @@ data class GameplayRoundState(
           musicPath = song.musicPath
         ),
         musicStartMs = musicStartMs,
-        timing = chart.timing
+        timing = chart.timing,
+        scrollMod = scrollMod,
+        readBpm = song.readBpm
       )
     }
 
     fun createNewRound(
       bpm: Int = PracticePatternGenerator.DEFAULT_BPM,
       beatZeroTimeMs: Long = PracticePatternGenerator.DEFAULT_BEAT_ZERO_MS,
-      isRunning: Boolean = true
+      isRunning: Boolean = true,
+      scrollMod: ScrollMod = ScrollMod.DEFAULT
     ): GameplayRoundState {
       return GameplayRoundState(
         bpm = bpm,
@@ -377,6 +407,8 @@ data class GameplayRoundState(
         isRunning = isRunning,
         isPaused = false,
         isCompleted = false,
+        scrollMod = scrollMod,
+        readBpm = bpm.toDouble(),
         notes = PracticePatternGenerator.generatePracticeNotes(
           beatZeroTimeMs = beatZeroTimeMs,
           bpm = bpm

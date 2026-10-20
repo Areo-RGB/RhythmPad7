@@ -2,11 +2,15 @@ package com.example.core.chart
 
 import kotlin.math.roundToInt
 
+/** StepMania SPEEDS segment: `beat=ratio=delay=unit` (unit 0 = beats, 1 = seconds). */
+data class SpeedSegment(val beat: Double, val ratio: Double, val delay: Double, val delayInSeconds: Boolean)
+
 /**
  * Kotlin port of StepMania's `TimingData` beat ↔ time conversion (src/TimingData.cpp,
- * `GetElapsedTimeInternal` / `GetBeatInternal`).
+ * `GetElapsedTimeInternal` / `GetBeatInternal`) and display helpers
+ * (`GetDisplayedBeat` for SCROLLS, `GetDisplayedSpeedPercent` for SPEEDS).
  *
- * Supports BPM changes, stops, delays and warps. Times are in seconds relative to the start
+ * Supports BPM changes, stops, delays, warps, scrolls and speeds. Times are in seconds relative to the start
  * of the music file; beat 0 sits at `-offset` seconds exactly like StepMania.
  */
 class TimingData(
@@ -14,8 +18,63 @@ class TimingData(
   bpms: List<Pair<Double, Double>>,
   stops: List<Pair<Double, Double>> = emptyList(),
   delays: List<Pair<Double, Double>> = emptyList(),
-  warps: List<Pair<Double, Double>> = emptyList()
+  warps: List<Pair<Double, Double>> = emptyList(),
+  scrolls: List<Pair<Double, Double>> = emptyList(),
+  speeds: List<SpeedSegment> = emptyList()
 ) {
+  /** SCROLLS: beat → ratio, always starting with a segment at beat 0 like StepMania. */
+  private val scrollSegs: List<Pair<Double, Double>> = scrolls.sortedBy { it.first }
+    .let { list -> if (list.isEmpty() || list.first().first > 0.0) listOf(0.0 to 1.0) + list else list }
+  private val speedSegs: List<SpeedSegment> = speeds.sortedBy { it.beat }
+
+  val hasScrollEffects: Boolean
+    get() = scrollSegs.any { it.second != 1.0 } || speedSegs.any { it.ratio != 1.0 }
+
+  /** GetDisplayedBeat: beats scaled by SCROLLS ratios (0 ratio = arrows stand still). */
+  fun displayedBeat(beat: Double): Double {
+    var out = 0.0
+    var i = 0
+    while (i < scrollSegs.size - 1) {
+      if (scrollSegs[i + 1].first > beat) break
+      out += (scrollSegs[i + 1].first - scrollSegs[i].first) * scrollSegs[i].second
+      i++
+    }
+    out += (beat - scrollSegs[i].first) * scrollSegs[i].second
+    return out
+  }
+
+  private fun delayAtBeat(beat: Double): Double {
+    val row = beatToRow(beat)
+    return delaySegs.firstOrNull { it.row == row }?.value ?: 0.0
+  }
+
+  /** GetDisplayedSpeedPercent: SPEEDS multiplier, tweened over each segment's delay. */
+  fun displayedSpeedPercent(songBeat: Double, musicSeconds: Double): Double {
+    if (speedSegs.isEmpty()) return 1.0
+    var index = 0
+    for (i in speedSegs.indices) {
+      if (speedSegs[i].beat <= songBeat) index = i else break
+    }
+    val seg = speedSegs[index]
+    val startTime = timeAtBeat(seg.beat) - delayAtBeat(seg.beat)
+    val endTime = if (seg.delayInSeconds) {
+      startTime + seg.delay
+    } else {
+      timeAtBeat(seg.beat + seg.delay) - delayAtBeat(seg.beat + seg.delay)
+    }
+    val first = speedSegs[0]
+    return if (index == 0 && first.delay > 0.0 && musicSeconds < startTime) {
+      1.0
+    } else if (endTime >= musicSeconds && (index > 0 || first.delay > 0.0)) {
+      val prior = if (index == 0) 1.0 else speedSegs[index - 1].ratio
+      val duration = endTime - startTime
+      val used = if (duration == 0.0) 1.0 else (musicSeconds - startTime) / duration
+      prior + used * -(prior - seg.ratio)
+    } else {
+      seg.ratio
+    }
+  }
+
   private class Segment(val row: Int, val value: Double)
 
   private val bpmSegs = bpms.map { Segment(beatToRow(it.first), it.second) }
@@ -27,6 +86,7 @@ class TimingData(
   private val warpSegs = warps.filter { it.second > 0.0 }.map { Segment(beatToRow(it.first), it.second) }.sortedBy { it.row }
 
   val bpmValues: List<Double> get() = bpmSegs.map { it.value }
+  val maxBpm: Double get() = bpmSegs.maxOf { it.value }
   val hasWarps: Boolean get() = warpSegs.isNotEmpty()
 
   private class Start {
@@ -177,7 +237,22 @@ class TimingData(
     fun beatToRow(beat: Double): Int = (beat * ROWS_PER_BEAT).roundToInt()
     fun rowToBeat(row: Int): Double = row.toDouble() / ROWS_PER_BEAT
 
-    /** Parses "beat=value,beat=value" lists (BPMS, STOPS, DELAYS, WARPS). */
+    /** Parses SPEEDS "beat=ratio=delay=unit" lists. */
+    fun parseSpeeds(raw: String?): List<SpeedSegment> {
+      if (raw.isNullOrBlank()) return emptyList()
+      return raw.split(',').mapNotNull { entry ->
+        val p = entry.trim().split('=').map { it.trim() }
+        if (p.size < 2) return@mapNotNull null
+        SpeedSegment(
+          beat = p[0].toDoubleOrNull() ?: return@mapNotNull null,
+          ratio = p[1].toDoubleOrNull() ?: return@mapNotNull null,
+          delay = p.getOrNull(2)?.toDoubleOrNull() ?: 0.0,
+          delayInSeconds = p.getOrNull(3)?.toDoubleOrNull()?.toInt() == 1
+        )
+      }
+    }
+
+    /** Parses "beat=value,beat=value" lists (BPMS, STOPS, DELAYS, WARPS, SCROLLS). */
     fun parsePairs(raw: String?): List<Pair<Double, Double>> {
       if (raw.isNullOrBlank()) return emptyList()
       return raw.split(',').mapNotNull { entry ->

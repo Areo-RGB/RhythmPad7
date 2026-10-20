@@ -1,6 +1,7 @@
 package com.example.core.state
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.AssetManager
 import android.util.Log
 import androidx.lifecycle.ViewModel
@@ -13,6 +14,7 @@ import com.example.core.chart.Song
 import com.example.core.chart.SongLibrary
 import com.example.core.gameplay.GameplayClock
 import com.example.core.gameplay.GameplayRoundState
+import com.example.core.gameplay.ScrollMod
 import com.example.core.input.ControllerManager
 import com.example.core.input.SharedPreferencesMappingStore
 import com.example.core.model.ControllerInfo
@@ -38,8 +40,20 @@ class RhythmGameViewModel(
   val controllerManager: ControllerManager,
   val gameplayClock: GameplayClock = GameplayClock(),
   private val songAudio: SongAudio? = null,
-  private val assets: AssetManager? = null
+  private val assets: AssetManager? = null,
+  private val prefs: SharedPreferences? = null
 ) : ViewModel() {
+
+  // Scroll speed modifier (StepMania XMod / MMod / CMod), persisted across launches
+  private val _scrollMod = MutableStateFlow(
+    ScrollMod.parse(prefs?.getString(PREF_SCROLL_MOD, null)) ?: ScrollMod.DEFAULT
+  )
+  val scrollMod: StateFlow<ScrollMod> = _scrollMod.asStateFlow()
+
+  fun setScrollMod(mod: ScrollMod) {
+    _scrollMod.value = mod
+    prefs?.edit()?.putString(PREF_SCROLL_MOD, mod.serialize())?.apply()
+  }
 
   // Song library loaded from assets/songs (StepMania .ssc / .sm)
   private val _songs = MutableStateFlow<List<Song>>(emptyList())
@@ -134,7 +148,7 @@ class RhythmGameViewModel(
    */
   fun startNewRound() {
     currentSelection = null
-    beginRound(GameplayRoundState.createNewRound(isRunning = true))
+    beginRound(GameplayRoundState.createNewRound(isRunning = true, scrollMod = _scrollMod.value))
   }
 
   /**
@@ -142,7 +156,7 @@ class RhythmGameViewModel(
    */
   fun startSongRound(song: Song, chart: Chart) {
     currentSelection = song to chart
-    beginRound(GameplayRoundState.createSongRound(song, chart, isRunning = true))
+    beginRound(GameplayRoundState.createSongRound(song, chart, isRunning = true, scrollMod = _scrollMod.value))
   }
 
   private fun beginRound(round: GameplayRoundState) {
@@ -359,6 +373,7 @@ class RhythmGameViewModel(
 
   companion object {
     private const val TAG = "AudioSync"
+    private const val PREF_SCROLL_MOD = "scroll_mod"
     const val AUDIO_SYNC_INTERVAL_MS = 250L
     const val AUDIO_SYNC_MIN_POSITION_MS = 150L
     const val AUDIO_SYNC_DEADBAND_MS = 8L
@@ -374,7 +389,8 @@ class RhythmGameViewModel(
       return RhythmGameViewModel(
         controllerManager = manager,
         songAudio = ExoSongAudio(appContext),
-        assets = appContext.assets
+        assets = appContext.assets,
+        prefs = appContext.getSharedPreferences("rhythmpad7_settings", Context.MODE_PRIVATE)
       ) as T
     }
   }
