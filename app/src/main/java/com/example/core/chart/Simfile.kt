@@ -44,7 +44,8 @@ data class Chart(
   val meter: Int,
   val description: String,
   val timing: TimingData,
-  val steps: List<ChartStep>
+  val steps: List<ChartStep>,
+  val chartId: String = ""
 ) {
   val noteCount: Int get() = steps.size
   val holdCount: Int get() = steps.count { it.kind != StepKind.TAP }

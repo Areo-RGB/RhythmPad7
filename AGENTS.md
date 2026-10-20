@@ -47,6 +47,12 @@
 6. **Root APK Sync (`app/build.gradle.kts` & `copy_debug_apk.sh`)**
    - `assembleDebug` automatically copies the generated APK to `/app-debug.apk` in the project root. Preserve this Gradle hook across edits.
 
+7. **StepMania Judgment Windows & Scoring (`Judgment.kt`, `ScoreStore.kt`)**
+   - Windows must follow StepMania `dance` defaults: W1 (±22.5 ms), W2 (±45 ms), W3 (±90 ms), W4 (±135 ms), W5 (±180 ms), Miss (>180 ms).
+   - Jumps score as one row decided by the arrow with the largest timing offset (`LastTapNoteScoreTrack`), while combo adds every tap. Combo resets on W4, W5, or Miss.
+   - Dance Points % (`percentDp`) is truncated to 2 decimals (`MakePercentScore`).
+   - High scores are persisted in `scores.json` keyed by `folder#DIFFICULTY` (or `practice`) with `chartCheck` CRC verification. Comparison prioritizes `percentDp`, with equal-DP tie-breaks decided by better `gradeTier` (lower tier number). Chart changes drop old records.
+
 ---
 
 ## Tablet Automation

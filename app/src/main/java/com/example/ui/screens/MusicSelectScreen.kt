@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -39,6 +40,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -62,10 +64,17 @@ import com.example.R
 import com.example.core.chart.Chart
 import com.example.core.chart.Difficulty
 import com.example.core.chart.Song
+import com.example.core.gameplay.FullComboKind
 import com.example.core.gameplay.ScrollMod
 import com.example.core.model.GameLane
+import com.example.core.model.Judgment
 import com.example.core.model.MenuButton
 import com.example.core.model.MenuInput
+import com.example.core.scores.PRACTICE_CHART_KEY
+import com.example.core.scores.ScoreRecord
+import com.example.core.scores.chartCheck
+import com.example.core.scores.chartKey
+import com.example.core.scores.practiceChartCheck
 import com.example.ui.components.NoPadInputs
 import com.example.ui.components.PadNavigation
 import kotlinx.coroutines.flow.Flow
@@ -99,10 +108,11 @@ fun Difficulty.color(): Color = when (this) {
   Difficulty.EDIT -> Color(0xFFCCCCCC)
 }
 
-/** Wheel cursor + preferred difficulty, hoisted so returning from a song keeps the selection. */
+/** Wheel cursor + preferred difficulty/chart, hoisted so returning from a song keeps the selection. */
 class MusicSelectState {
   var selectedIndex by mutableIntStateOf(0)
   var preferredDifficulty by mutableIntStateOf(Difficulty.BEGINNER.ordinal)
+  var selectedChartId by mutableStateOf<String?>(null)
 }
 
 /** One music wheel row: a real song, or the built-in practice pattern (song == null). */
@@ -124,18 +134,28 @@ fun MusicSelectScreen(
   state: MusicSelectState = remember { MusicSelectState() },
   scrollMod: ScrollMod = ScrollMod.DEFAULT,
   onScrollModChange: (ScrollMod) -> Unit = {},
-  menuInputs: Flow<MenuInput> = NoPadInputs
+  menuInputs: Flow<MenuInput> = NoPadInputs,
+  bestScores: Map<String, ScoreRecord> = emptyMap()
 ) {
   BackHandler(onBack = onNavigateBack)
 
   val entries = remember(songs) { songs.map { WheelEntry(it) } + WheelEntry(null) }
   var selectedIndex by state::selectedIndex
   var preferredDifficulty by state::preferredDifficulty
+  var selectedChartId by state::selectedChartId
 
   val selected = entries.getOrNull(selectedIndex.coerceIn(0, entries.lastIndex))
   val charts = selected?.song?.charts.orEmpty()
-  // Like StepMania, keep the chosen difficulty across songs, falling back to the closest one.
-  val selectedChart = charts.minByOrNull { kotlin.math.abs(it.difficulty.ordinal - preferredDifficulty) }
+  // Retain the chosen chart by ID if available, otherwise fall back to the closest difficulty.
+  val selectedChart = charts.firstOrNull { it.chartId == selectedChartId }
+    ?: charts.minByOrNull { kotlin.math.abs(it.difficulty.ordinal - preferredDifficulty) }
+
+  LaunchedEffect(selectedChart) {
+    selectedChart?.let {
+      selectedChartId = it.chartId
+      preferredDifficulty = it.difficulty.ordinal
+    }
+  }
 
   val startSelected = rememberUpdatedState {
     val song = selected?.song
@@ -155,7 +175,9 @@ fun MusicSelectScreen(
     if (charts.isEmpty() || selectedChart == null) return
     val idx = charts.indexOf(selectedChart)
     val next = (idx + delta).coerceIn(0, charts.lastIndex)
-    preferredDifficulty = charts[next].difficulty.ordinal
+    val target = charts[next]
+    selectedChartId = target.chartId
+    preferredDifficulty = target.difficulty.ordinal
   }
 
   // Music sample preview
@@ -215,12 +237,26 @@ fun MusicSelectScreen(
           verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
           SongBanner(song = selected?.song)
-          SongInfoPane(song = selected?.song, chart = selectedChart)
+          val currentRecord = if (selected?.song != null && selectedChart != null) {
+            bestScores[chartKey(selected.song, selectedChart)]?.takeIf { it.chartCheck == chartCheck(selectedChart) }
+          } else if (selected?.song == null) {
+            bestScores[PRACTICE_CHART_KEY]?.takeIf { it.chartCheck == practiceChartCheck() }
+          } else null
+          SongInfoPane(
+            song = selected?.song,
+            chart = selectedChart,
+            bestRecord = currentRecord
+          )
           SpeedModPicker(selected = scrollMod, onSelect = onScrollModChange)
           DifficultyList(
+            song = selected?.song,
             charts = charts,
             selected = selectedChart,
-            onSelect = { preferredDifficulty = it.difficulty.ordinal },
+            bestScores = bestScores,
+            onSelect = { chart ->
+              selectedChartId = chart.chartId
+              preferredDifficulty = chart.difficulty.ordinal
+            },
             modifier = Modifier.weight(1f)
           )
           SmButton(
@@ -242,6 +278,9 @@ fun MusicSelectScreen(
             MusicWheel(
               entries = entries,
               selectedIndex = selectedIndex,
+              preferredDifficulty = preferredDifficulty,
+              selectedChartId = selectedChartId,
+              bestScores = bestScores,
               onSelect = { index ->
                 if (index == selectedIndex) startSelected.value() else selectedIndex = index
               }
@@ -307,7 +346,7 @@ private fun SongBanner(song: Song?) {
 }
 
 @Composable
-private fun SongInfoPane(song: Song?, chart: Chart?) {
+private fun SongInfoPane(song: Song?, chart: Chart?, bestRecord: ScoreRecord? = null) {
   SmPanel(
     modifier = Modifier.fillMaxWidth(),
     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
@@ -327,11 +366,13 @@ private fun SongInfoPane(song: Song?, chart: Chart?) {
         )
       }
       InfoStat(label = "BPM", value = song?.displayBpm ?: "120")
-      Spacer(modifier = Modifier.width(18.dp))
+      Spacer(modifier = Modifier.width(16.dp))
       val lengthSec = chart?.steps?.maxOfOrNull { it.timeSeconds }?.toInt() ?: 34
       InfoStat(label = "LENGTH", value = String.format(Locale.US, "%d:%02d", lengthSec / 60, lengthSec % 60))
-      Spacer(modifier = Modifier.width(18.dp))
+      Spacer(modifier = Modifier.width(16.dp))
       InfoStat(label = "STEPS", value = "${chart?.noteCount ?: 77}")
+      Spacer(modifier = Modifier.width(16.dp))
+      InfoStat(label = "PLAYS", value = "${bestRecord?.playCount ?: 0}")
     }
   }
 }
@@ -392,8 +433,10 @@ private fun InfoStat(label: String, value: String) {
 /** StepsDisplayList: one row per difficulty with the P1 cursor on the chosen chart. */
 @Composable
 private fun DifficultyList(
+  song: Song?,
   charts: List<Chart>,
   selected: Chart?,
+  bestScores: Map<String, ScoreRecord>,
   onSelect: (Chart) -> Unit,
   modifier: Modifier = Modifier
 ) {
@@ -403,23 +446,32 @@ private fun DifficultyList(
     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
   ) {
     if (charts.isEmpty()) {
+      val record = bestScores[PRACTICE_CHART_KEY]?.takeIf { it.chartCheck == practiceChartCheck() }
       DifficultyRow(
         name = "Beginner",
         meter = 1,
         steps = 77,
         color = Difficulty.BEGINNER.color(),
         isSelected = true,
+        record = record,
         onClick = {}
       )
     } else {
       Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         charts.forEach { chart ->
+          val record = bestScores[chartKey(song, chart)]?.takeIf { it.chartCheck == chartCheck(chart) }
+          val rowName = if (chart.description.isNotBlank()) {
+            "${chart.difficulty.displayName} • ${chart.description}"
+          } else {
+            chart.difficulty.displayName
+          }
           DifficultyRow(
-            name = chart.difficulty.displayName,
+            name = rowName,
             meter = chart.meter,
             steps = chart.noteCount,
             color = chart.difficulty.color(),
             isSelected = chart == selected,
+            record = record,
             onClick = { onSelect(chart) }
           )
         }
@@ -435,6 +487,7 @@ private fun DifficultyRow(
   steps: Int,
   color: Color,
   isSelected: Boolean,
+  record: ScoreRecord? = null,
   onClick: () -> Unit
 ) {
   val shape = ChamferShape(10.dp, pointLeft = false)
@@ -483,9 +536,18 @@ private fun DifficultyRow(
         ),
         modifier = Modifier.weight(1f)
       )
+      val detailText = if (record != null) {
+        String.format(Locale.US, "%.2f%%", record.percentDp)
+      } else {
+        "$steps steps"
+      }
       Text(
-        text = "$steps steps",
-        style = TextStyle(fontSize = 12.sp, color = if (isSelected) SmCharcoal.copy(alpha = 0.75f) else SmTextSecondary)
+        text = detailText,
+        style = TextStyle(
+          fontSize = 12.sp,
+          fontWeight = if (record != null) FontWeight.Bold else FontWeight.Normal,
+          color = if (isSelected) SmCharcoal.copy(alpha = 0.85f) else SmTextSecondary
+        )
       )
       Spacer(modifier = Modifier.width(14.dp))
       Text(
@@ -505,6 +567,9 @@ private fun DifficultyRow(
 private fun MusicWheel(
   entries: List<WheelEntry>,
   selectedIndex: Int,
+  preferredDifficulty: Int,
+  selectedChartId: String?,
+  bestScores: Map<String, ScoreRecord>,
   onSelect: (Int) -> Unit
 ) {
   val listState = rememberLazyListState()
@@ -518,9 +583,17 @@ private fun MusicWheel(
     contentPadding = PaddingValues(vertical = 12.dp)
   ) {
     itemsIndexed(entries) { index, entry ->
+      val chart = entry.song?.charts?.firstOrNull { it.chartId == selectedChartId }
+        ?: entry.song?.charts?.minByOrNull { kotlin.math.abs(it.difficulty.ordinal - preferredDifficulty) }
+      val record = if (chart != null) {
+        bestScores[chartKey(entry.song, chart)]?.takeIf { it.chartCheck == chartCheck(chart) }
+      } else if (entry.song == null) {
+        bestScores[PRACTICE_CHART_KEY]?.takeIf { it.chartCheck == practiceChartCheck() }
+      } else null
       WheelItem(
         entry = entry,
         isSelected = index == selectedIndex,
+        bestRecord = record,
         onClick = { onSelect(index) },
         modifier = Modifier.testTag("music_wheel_item_$index")
       )
@@ -532,6 +605,7 @@ private fun MusicWheel(
 private fun WheelItem(
   entry: WheelEntry,
   isSelected: Boolean,
+  bestRecord: ScoreRecord? = null,
   onClick: () -> Unit,
   modifier: Modifier = Modifier
 ) {
@@ -605,6 +679,28 @@ private fun WheelItem(
           ),
           maxLines = 1
         )
+      }
+      if (bestRecord != null) {
+        val ringColor = when (bestRecord.fullCombo) {
+          FullComboKind.FLAWLESS -> Judgment.W1.color
+          FullComboKind.PERFECT -> Judgment.W2.color
+          FullComboKind.GREAT -> Judgment.W3.color
+          null -> Color.Transparent
+        }
+        Box(
+          modifier = Modifier
+            .padding(end = 12.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .border(if (bestRecord.fullCombo != null) 2.dp else 0.dp, ringColor, RoundedCornerShape(6.dp))
+            .padding(if (bestRecord.fullCombo != null) 2.dp else 0.dp),
+          contentAlignment = Alignment.Center
+        ) {
+          Image(
+            painter = painterResource(gradeDrawableForTier(bestRecord.gradeTier)),
+            contentDescription = "Best Grade",
+            modifier = Modifier.height(36.dp)
+          )
+        }
       }
       // Difficulty pips like the wheel's grade/difficulty strip
       Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

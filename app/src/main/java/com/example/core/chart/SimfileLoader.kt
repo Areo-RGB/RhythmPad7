@@ -93,8 +93,29 @@ object SimfileLoader {
       displayBpm = displayBpm,
       readBpm = readBpm,
       songTiming = timing,
-      charts = charts.sortedWith(compareBy({ it.difficulty.ordinal }, { it.meter }))
+      charts = assignChartIds(charts.sortedWith(compareBy({ it.difficulty.ordinal }, { it.meter })))
     )
+  }
+
+  internal fun assignChartIds(charts: List<Chart>): List<Chart> {
+    val used = mutableSetOf<String>()
+    val difficultyCounts = charts.groupBy { it.difficulty }
+    return charts.map { chart ->
+      val hasMultiple = (difficultyCounts[chart.difficulty]?.size ?: 0) > 1
+      val base = when {
+        !hasMultiple && chart.description.isBlank() -> chart.difficulty.name
+        chart.description.isNotBlank() -> "${chart.difficulty.name}#${chart.description}"
+        else -> "${chart.difficulty.name}#${chart.meter}"
+      }
+      var candidate = base
+      var suffix = 2
+      while (candidate in used) {
+        candidate = "$base#$suffix"
+        suffix++
+      }
+      used += candidate
+      chart.copy(chartId = candidate)
+    }
   }
 
   private fun buildTiming(tags: Map<String, String>): TimingData = TimingData(

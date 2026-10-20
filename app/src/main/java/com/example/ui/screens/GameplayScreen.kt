@@ -73,6 +73,7 @@ import com.example.R
 import com.example.core.chart.Difficulty
 import com.example.core.gameplay.FullComboKind
 import com.example.core.gameplay.GameplayRoundState
+import com.example.core.scores.SubmitResult
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
 import com.example.core.model.Judgment
@@ -103,6 +104,7 @@ import com.example.ui.theme.SmBeginnerMint
 import com.example.ui.theme.SmCharcoal
 import com.example.ui.theme.SmCharcoalLight
 import com.example.ui.theme.SmEasyGreen
+import com.example.ui.theme.SmGold
 import com.example.ui.theme.SmMaxCombo
 import com.example.ui.theme.SmP1Blue
 import com.example.ui.theme.SmPlum
@@ -157,7 +159,8 @@ fun GameplayScreen(
   onRestartRound: () -> Unit,
   onNavigateBack: () -> Unit,
   modifier: Modifier = Modifier,
-  menuInputs: Flow<MenuInput> = NoPadInputs
+  menuInputs: Flow<MenuInput> = NoPadInputs,
+  lastSubmitResult: SubmitResult? = null
 ) {
   BackHandler(onBack = onNavigateBack)
 
@@ -383,7 +386,8 @@ fun GameplayScreen(
         roundState = roundState,
         cursor = resultCursor,
         onRestartRound = onRestartRound,
-        onNavigateBack = onNavigateBack
+        onNavigateBack = onNavigateBack,
+        lastSubmitResult = lastSubmitResult
       )
     }
   }
@@ -996,7 +1000,8 @@ private fun EvaluationOverlay(
   roundState: GameplayRoundState,
   cursor: Int,
   onRestartRound: () -> Unit,
-  onNavigateBack: () -> Unit
+  onNavigateBack: () -> Unit,
+  lastSubmitResult: SubmitResult? = null
 ) {
   val intro = remember { Animatable(0f) }
   LaunchedEffect(Unit) { intro.animateTo(1f, tween(500, easing = LinearEasing)) }
@@ -1019,7 +1024,7 @@ private fun EvaluationOverlay(
       contentPadding = androidx.compose.foundation.layout.PaddingValues(24.dp)
     ) {
       Row(verticalAlignment = Alignment.CenterVertically) {
-        // Grade + percentage
+        // Grade + percentage + new record chip
         Column(
           modifier = Modifier.width(260.dp),
           horizontalAlignment = Alignment.CenterHorizontally
@@ -1041,7 +1046,22 @@ private fun EvaluationOverlay(
             text = String.format(Locale.US, "%.2f%%", roundState.percentDp),
             style = NumberStyle.copy(fontSize = 34.sp, color = Color.White).smShadow(2f)
           )
+          if (lastSubmitResult?.previousBest != null) {
+            Text(
+              text = "PREV BEST: ${String.format(Locale.US, "%.2f%%", lastSubmitResult.previousBest.percentDp)}",
+              style = NumberStyle.copy(fontSize = 13.sp, color = SmTextMuted)
+            )
+          }
+          if (lastSubmitResult?.isNewBest == true) {
+            Spacer(modifier = Modifier.height(4.dp))
+            SmChip(
+              text = "NEW RECORD",
+              color = SmGold,
+              textColor = SmCharcoal
+            )
+          }
           roundState.fullComboKind?.let { fc ->
+            Spacer(modifier = Modifier.height(4.dp))
             val (fcText, fcColor) = when (fc) {
               FullComboKind.FLAWLESS -> "FLAWLESS FULL COMBO" to Judgment.W1.color
               FullComboKind.PERFECT -> "PERFECT FULL COMBO" to Judgment.W2.color
