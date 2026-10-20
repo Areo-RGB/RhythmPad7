@@ -119,6 +119,8 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
   val isPaused by viewModel.isPaused.collectAsStateWithLifecycle()
   val songs by viewModel.songs.collectAsStateWithLifecycle()
   val songsLoading by viewModel.songsLoading.collectAsStateWithLifecycle()
+  val bestScores by viewModel.bestScores.collectAsStateWithLifecycle()
+  val lastSubmitResult by viewModel.lastResult.collectAsStateWithLifecycle()
   val musicSelectState = remember { MusicSelectState() }
   val scrollMod by viewModel.scrollMod.collectAsStateWithLifecycle()
 
@@ -150,6 +152,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
           songs = songs,
           isLoading = songsLoading,
+          bestScores = bestScores,
           onStartSong = { song, chart ->
             viewModel.stopPreview()
             viewModel.startSongRound(song, chart)
@@ -179,6 +182,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           controllerInfo = controllerInfo,
           isDebugOverlayVisible = isDebugVisible,
           isPaused = isPaused,
+          lastSubmitResult = lastSubmitResult,
           onSyncRoundClock = {
             viewModel.syncRoundClock()
           },

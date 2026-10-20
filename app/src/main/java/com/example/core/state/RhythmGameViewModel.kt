@@ -25,6 +25,11 @@ import com.example.core.model.MenuInput
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import com.example.core.model.RawInputEvent
+import com.example.core.scores.ScoreRecord
+import com.example.core.scores.ScoreStore
+import com.example.core.scores.SubmitResult
+import com.example.core.scores.chartCheckForRound
+import com.example.core.scores.chartKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,8 +49,16 @@ class RhythmGameViewModel(
   val gameplayClock: GameplayClock = GameplayClock(),
   private val songAudio: SongAudio? = null,
   private val assets: AssetManager? = null,
-  private val prefs: SharedPreferences? = null
+  private val prefs: SharedPreferences? = null,
+  private val scoreStore: ScoreStore? = null
 ) : ViewModel() {
+
+  // High score tracking per chart and practice pattern
+  private val _bestScores = MutableStateFlow<Map<String, ScoreRecord>>(scoreStore?.scores.orEmpty())
+  val bestScores: StateFlow<Map<String, ScoreRecord>> = _bestScores.asStateFlow()
+
+  private val _lastResult = MutableStateFlow<SubmitResult?>(null)
+  val lastResult: StateFlow<SubmitResult?> = _lastResult.asStateFlow()
 
   // Scroll speed modifier (StepMania XMod / MMod / CMod), persisted across launches
   private val _scrollMod = MutableStateFlow(
@@ -177,6 +190,7 @@ class RhythmGameViewModel(
     clearPressedStates()
     _inputState.value = _inputState.value.resetAll()
     _isPaused.value = false
+    _lastResult.value = null
     songAudio?.stop()
     audioStarted = false
     round.meta.musicPath?.let { songAudio?.prepare(it) }
@@ -266,6 +280,34 @@ class RhythmGameViewModel(
       gameplayClock.stop()
       songAudio?.stop()
       audioStarted = false
+
+      val song = currentSelection?.first
+      val chart = currentSelection?.second
+      val record = ScoreRecord(
+        key = chartKey(song, chart),
+        chartCheck = chartCheckForRound(song, chart),
+        percentDp = updated.percentDp,
+        gradeTier = updated.gradeTier,
+        score = updated.score,
+        maxCombo = updated.maxCombo,
+        w1Count = updated.w1Count,
+        w2Count = updated.w2Count,
+        w3Count = updated.w3Count,
+        w4Count = updated.w4Count,
+        w5Count = updated.w5Count,
+        missCount = updated.missCount,
+        heldCount = updated.heldCount,
+        letGoCount = updated.letGoCount,
+        fullCombo = updated.fullComboKind,
+        scrollMod = updated.scrollMod.serialize(),
+        dateIso = java.time.LocalDate.now().toString(),
+        playCount = 1
+      )
+      scoreStore?.let { store ->
+        val result = store.submit(record)
+        _bestScores.value = store.scores
+        _lastResult.value = result
+      }
     }
   }
 
@@ -340,6 +382,7 @@ class RhythmGameViewModel(
     songAudio?.stop()
     audioStarted = false
     _isPaused.value = false
+    _lastResult.value = null
     clearPressedStates()
     _roundState.value = _roundState.value.copy(isRunning = false, isPaused = false)
   }
@@ -406,7 +449,8 @@ class RhythmGameViewModel(
         controllerManager = manager,
         songAudio = ExoSongAudio(appContext),
         assets = appContext.assets,
-        prefs = appContext.getSharedPreferences("rhythmpad7_settings", Context.MODE_PRIVATE)
+        prefs = appContext.getSharedPreferences("rhythmpad7_settings", Context.MODE_PRIVATE),
+        scoreStore = ScoreStore(java.io.File(appContext.filesDir, "scores.json"))
       ) as T
     }
   }
