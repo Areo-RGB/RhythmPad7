@@ -391,7 +391,9 @@ fun SmHeader(
 fun SmFooter(
   text: String,
   modifier: Modifier = Modifier,
-  trailing: String? = null
+  trailing: String? = null,
+  /** Active profile name, bottom-left like StepMania's ScreenSystemLayer P1 credits text. */
+  playerName: String? = null
 ) {
   Box(
     modifier = modifier
@@ -415,6 +417,35 @@ fun SmFooter(
       ),
       modifier = Modifier.align(Alignment.Center)
     )
+    if (playerName != null) {
+      Row(
+        modifier = Modifier
+          .align(Alignment.CenterStart)
+          .padding(start = 20.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Text(
+          text = "P1",
+          style = TextStyle(
+            fontFamily = OpenSans,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 12.sp,
+            color = Color(0xFFF06A9B) // brightened plum, readable on the charcoal footer
+          )
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+          text = playerName.uppercase(),
+          style = TextStyle(
+            fontFamily = OpenSans,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            letterSpacing = 1.sp,
+            color = Color.White
+          )
+        )
+      }
+    }
     if (trailing != null) {
       Text(
         text = trailing,
@@ -445,13 +476,15 @@ fun SmPanel(
   titleTrailing: @Composable RowScope.() -> Unit = {},
   contentPadding: PaddingValues = PaddingValues(16.dp),
   backgroundAlpha: Float = 0.9f,
+  /** Overrides the default charcoal body fill. */
+  background: Brush? = null,
   content: @Composable ColumnScope.() -> Unit
 ) {
   Column(
     modifier = modifier
       .clip(SmPanelShape)
       .background(
-        Brush.verticalGradient(
+        background ?: Brush.verticalGradient(
           listOf(
             SmCharcoalLight.copy(alpha = backgroundAlpha),
             SmCharcoal.copy(alpha = backgroundAlpha)

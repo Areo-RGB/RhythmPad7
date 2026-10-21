@@ -2,6 +2,8 @@ package com.example.core.input
 
 import android.content.Context
 import android.hardware.input.InputManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -56,6 +58,26 @@ class ControllerManager(
 
   // Tracks currently held keycodes to eliminate duplicate ACTION_DOWN repeats
   private val pressedKeyCodes = mutableSetOf<Int>()
+
+  // 20 ms per-key debounce (ITGmania InputDebounceTime) against dance-mat contact chatter
+  private val debounceHandler by lazy { Handler(Looper.getMainLooper()) }
+  private val laneDebouncer = InputDebouncer<Int>(
+    schedule = { atMs, check -> debounceHandler.postAtTime({ check() }, atMs) },
+    report = { keyCode, pressed, timestampMs ->
+      val lane = findLaneForKey(keyCode)
+      if (lane != null) {
+        _gameInputEvents.tryEmit(
+          GameInputEvent(
+            lane = lane,
+            isPressed = pressed,
+            timestamp = timestampMs,
+            source = InputSource.CONTROLLER,
+            inputId = "KEY_$keyCode"
+          )
+        )
+      }
+    }
+  )
 
   // Mapping capture state: when non-null, the next valid input on the target controller will bind to this lane
   private val _capturingLane = MutableStateFlow<GameLane?>(null)
@@ -215,17 +237,8 @@ class ControllerManager(
         }
         pressedKeyCodes.add(keyCode)
 
-        val targetLane = findLaneForKey(keyCode)
-        if (targetLane != null) {
-          _gameInputEvents.tryEmit(
-            GameInputEvent(
-              lane = targetLane,
-              isPressed = true,
-              timestamp = timestamp,
-              source = InputSource.CONTROLLER,
-              inputId = "KEY_$keyCode"
-            )
-          )
+        if (findLaneForKey(keyCode) != null) {
+          laneDebouncer.onRawEvent(keyCode, pressed = true, timestampMs = timestamp)
           return true
         }
         val menuButton = MenuButton.fromKeyCode(keyCode)
@@ -238,17 +251,8 @@ class ControllerManager(
       KeyEvent.ACTION_UP -> {
         pressedKeyCodes.remove(keyCode)
         if (findLaneForKey(keyCode) == null && MenuButton.fromKeyCode(keyCode) != null) return true
-        val targetLane = findLaneForKey(keyCode)
-        if (targetLane != null) {
-          _gameInputEvents.tryEmit(
-            GameInputEvent(
-              lane = targetLane,
-              isPressed = false,
-              timestamp = timestamp,
-              source = InputSource.CONTROLLER,
-              inputId = "KEY_$keyCode"
-            )
-          )
+        if (findLaneForKey(keyCode) != null) {
+          laneDebouncer.onRawEvent(keyCode, pressed = false, timestampMs = timestamp)
           return true
         }
       }
@@ -355,6 +359,7 @@ class ControllerManager(
       }
       pressedKeyCodes.clear()
     }
+    laneDebouncer.reset()
   }
 
   fun release() {

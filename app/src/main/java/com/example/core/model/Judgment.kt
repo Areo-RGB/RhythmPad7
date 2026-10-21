@@ -73,6 +73,20 @@ enum class Judgment(
 
     private val HIT_WINDOWS = listOf(W1, W2, W3, W4, W5)
 
+    /** StepMania `TimingWindowScale`: multiplies every hit window (and the miss threshold). */
+    const val MIN_TIMING_SCALE = 0.5f
+    const val MAX_TIMING_SCALE = 2.0f
+    const val TIMING_SCALE_STEP = 0.25f
+
+    @Volatile
+    var timingWindowScale: Float = 1.0f
+      set(value) { field = value.coerceIn(MIN_TIMING_SCALE, MAX_TIMING_SCALE) }
+
+    /** Current late-miss threshold in ms, scaled by [timingWindowScale]. */
+    val missThresholdMs: Long get() = missThresholdMsFor(timingWindowScale)
+
+    fun missThresholdMsFor(scale: Float): Long = (MISS_THRESHOLD_MS * scale).toLong()
+
     /**
      * Evaluates a signed timing error (inputTimeMs - scheduledHitTimeMs) against W1→W5 windows.
      * The first window containing |signedErrorMs| wins (StepMania `Player::Step`);
@@ -80,7 +94,8 @@ enum class Judgment(
      */
     fun evaluateHit(signedErrorMs: Double): Judgment? {
       val absError = abs(signedErrorMs)
-      return HIT_WINDOWS.firstOrNull { absError <= it.windowMs }
+      val scale = timingWindowScale
+      return HIT_WINDOWS.firstOrNull { absError <= it.windowMs * scale }
     }
 
     fun evaluateHit(signedErrorMs: Long): Judgment? = evaluateHit(signedErrorMs.toDouble())

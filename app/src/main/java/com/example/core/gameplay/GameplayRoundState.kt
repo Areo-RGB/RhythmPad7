@@ -317,7 +317,7 @@ data class GameplayRoundState(
           else -> note
         }
       } else if (note.state == NoteState.PENDING &&
-        (clampedTimeMs - note.hitTimeMs) > Judgment.MISS_THRESHOLD_MS
+        (clampedTimeMs - note.hitTimeMs) > Judgment.missThresholdMs
       ) {
         anyNoteChanged = true
         nextSeq += 1
@@ -410,7 +410,7 @@ data class GameplayRoundState(
             (note.state == NoteState.MISSED && (note.judgedAtMs ?: Long.MAX_VALUE) > inputGameTimeMs)
           )
       }
-      .filter { abs(inputGameTimeMs - it.hitTimeMs) <= Judgment.MISS_THRESHOLD_MS }
+      .filter { abs(inputGameTimeMs - it.hitTimeMs) <= Judgment.missThresholdMs }
       .minByOrNull { it.hitTimeMs }
       ?: return timeSyncedState
 
