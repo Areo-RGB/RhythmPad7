@@ -1,0 +1,24 @@
+# Captures every screen for design review into ./screenshots/ (relative to where maestro runs).
+appId: com.rhythmpad7.app
+name: screenshots
+---
+- launchApp:
+    stopApp: true
+- waitForAnimationToEnd
+- takeScreenshot: screenshots/01-home
+- tapOn:
+    id: home_button_settings
+- waitForAnimationToEnd
+- takeScreenshot: screenshots/02-settings
+- tapOn:
+    id: settings_controller
+- waitForAnimationToEnd
+- takeScreenshot: screenshots/03-controller-settings
+- back
+- tapOn:
+    id: settings_back
+- tapOn:
+    id: home_button_start_game
+- waitForAnimationToEnd
+- takeScreenshot: screenshots/04-song-select
+- back

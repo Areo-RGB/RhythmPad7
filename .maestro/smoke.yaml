@@ -1,0 +1,32 @@
+# Every screen opens and back works. Run after every install.
+appId: com.rhythmpad7.app
+name: smoke
+---
+- launchApp:
+    stopApp: true
+- assertVisible:
+    id: home_button_start_game
+- assertVisible:
+    id: home_player_panel
+- tapOn:
+    id: home_button_settings
+- assertVisible: "INPUT STATUS"
+- assertVisible:
+    id: settings_sync_offset
+- tapOn:
+    id: settings_controller
+- assertVisible:
+    id: settings_button_reset_defaults
+- back
+- assertVisible:
+    id: settings_sync_offset
+- tapOn:
+    id: settings_back
+- tapOn:
+    id: home_button_start_game
+- assertVisible:
+    id: music_button_start
+- assertVisible: "DIFFICULTY"
+- back
+- assertVisible:
+    id: home_button_start_game

@@ -1,0 +1,27 @@
+# Settings page: offset reset, auto-sync toggle, controller settings round trip.
+appId: com.rhythmpad7.app
+name: settings
+---
+- launchApp:
+    stopApp: true
+- tapOn:
+    id: home_button_settings
+- tapOn:
+    id: settings_sync_offset
+- assertVisible: "SYNC OFFSET\\s+0 ms"
+- assertVisible: "AUTO-SYNC\\s+ON"
+- tapOn:
+    id: settings_auto_sync
+- assertVisible: "AUTO-SYNC\\s+OFF"
+- tapOn:
+    id: settings_auto_sync
+- assertVisible: "AUTO-SYNC\\s+ON"
+- tapOn:
+    id: settings_controller
+- assertVisible:
+    id: settings_button_reset_defaults
+- back
+- tapOn:
+    id: settings_back
+- assertVisible:
+    id: home_button_start_game

@@ -1,0 +1,19 @@
+# Profile switch persists across restarts and the footer follows it. Ends on Finley.
+appId: com.rhythmpad7.app
+name: profile
+---
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/ensure-finley.yaml
+- tapOn:
+    id: home_player_panel
+- assertVisible: "GUEST"
+- assertNotVisible: "FINLEY"
+- launchApp:
+    stopApp: true
+- assertVisible: "GUEST"
+- tapOn:
+    id: home_player_panel
+- assertVisible: "FINLEY"
+- assertNotVisible: "GUEST"

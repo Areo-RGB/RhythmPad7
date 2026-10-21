@@ -1,0 +1,30 @@
+# Plays the practice chart with no input as GUEST (never pollutes Finley's scores),
+# checks the results screen, then switches back to Finley.
+appId: com.rhythmpad7.app
+name: full-round
+---
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/ensure-guest.yaml
+- tapOn:
+    id: home_button_start_game
+- tapOn: "Practice Pattern"
+- assertVisible: "START PRACTICE"
+- tapOn:
+    id: music_button_start
+- extendedWaitUntil:
+    visible:
+      id: round_complete_overlay
+    timeout: 240000
+- assertVisible:
+    id: summary_text_final_score
+- tapOn:
+    id: summary_button_home   # "SELECT MUSIC": returns to song select
+- assertVisible:
+    id: music_button_start
+- back
+- assertVisible:
+    id: home_button_start_game
+- runFlow:
+    file: subflows/ensure-finley.yaml

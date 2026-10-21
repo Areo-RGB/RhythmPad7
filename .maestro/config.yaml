@@ -1,0 +1,12 @@
+# `maestro test .maestro` runs the top-level flows in this order (subflows/ are helpers only).
+flows:
+  - "*"
+executionOrder:
+  continueOnFailure: true
+  flowsOrder:
+    - smoke
+    - settings
+    - profile
+    - timing-window
+    - full-round
+    - screenshots

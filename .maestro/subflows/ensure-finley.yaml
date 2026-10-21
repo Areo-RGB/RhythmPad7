@@ -1,0 +1,9 @@
+appId: com.rhythmpad7.app
+---
+- runFlow:
+    when:
+      visible: "GUEST"
+    commands:
+      - tapOn:
+          id: home_player_panel
+- assertVisible: "FINLEY"
