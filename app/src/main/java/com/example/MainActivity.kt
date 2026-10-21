@@ -23,8 +23,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.core.model.Judgment
 import com.example.core.state.RhythmGameViewModel
 import com.example.ui.screens.ControllerSettingsScreen
+import com.example.ui.screens.SettingsScreen
 import com.example.ui.screens.GameplayScreen
 import com.example.ui.components.NoPadInputs
 import com.example.ui.screens.HomeScreen
@@ -36,7 +38,8 @@ enum class AppScreen {
   HOME,
   MUSIC_SELECT,
   GAMEPLAY,
-  SETTINGS
+  SETTINGS,
+  OPTIONS
 }
 
 class MainActivity : ComponentActivity() {
@@ -109,10 +112,19 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun RhythmAppContent(viewModel: RhythmGameViewModel) {
   var currentScreen by remember { mutableStateOf(AppScreen.HOME) }
+  val context = androidx.compose.ui.platform.LocalContext.current
+  val timingPrefs = remember { context.getSharedPreferences("rhythmpad_settings", android.content.Context.MODE_PRIVATE) }
+  var timingScale by remember {
+    Judgment.timingWindowScale = timingPrefs.getFloat("timing_window_scale", 1.0f)
+    androidx.compose.runtime.mutableFloatStateOf(Judgment.timingWindowScale)
+  }
 
   val inputState by viewModel.inputState.collectAsStateWithLifecycle()
   val roundState by viewModel.roundState.collectAsStateWithLifecycle()
   val controllerInfo by viewModel.controllerInfo.collectAsStateWithLifecycle()
+  val inputOffsetMs by viewModel.inputOffsetMs.collectAsStateWithLifecycle()
+  val autoSyncStatus by viewModel.autoSyncStatus.collectAsStateWithLifecycle()
+  val profile by viewModel.profile.collectAsStateWithLifecycle()
   val currentMapping by viewModel.currentMapping.collectAsStateWithLifecycle()
   val capturingLane by viewModel.capturingLane.collectAsStateWithLifecycle()
   val isDebugVisible by viewModel.isDebugOverlayVisible.collectAsStateWithLifecycle()
@@ -138,17 +150,33 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           onStartGame = {
             currentScreen = AppScreen.MUSIC_SELECT
           },
-          onOpenSettings = {
-            currentScreen = AppScreen.SETTINGS
+          timingScale = timingScale,
+          onTimingScaleChange = { scale ->
+            Judgment.timingWindowScale = scale
+            timingScale = Judgment.timingWindowScale
+            timingPrefs.edit().putFloat("timing_window_scale", timingScale).apply()
           },
           onScanControllers = {
             viewModel.scanControllers()
-          }
+          },
+          onOpenSettings = {
+            currentScreen = AppScreen.OPTIONS
+          },
+          profile = profile,
+          bestGradeTier = bestScores.values.minOfOrNull { it.gradeTier },
+          chartsPlayed = bestScores.size,
+          bestPercent = bestScores.values.maxOfOrNull { it.percentDp },
+          onSelectProfile = { viewModel.selectProfile(it) },
+          inputOffsetMs = inputOffsetMs,
+          onInputOffsetChange = { viewModel.setInputOffsetMs(it) },
+          autoSyncEnabled = autoSyncStatus.enabled,
+          onToggleAutoSync = { viewModel.setAutoSyncEnabled(!autoSyncStatus.enabled) }
         )
       }
 
       AppScreen.MUSIC_SELECT -> {
         MusicSelectScreen(
+          playerName = profile.displayName,
           menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
           songs = songs,
           isLoading = songsLoading,
@@ -205,6 +233,21 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
         )
       }
 
+      AppScreen.OPTIONS -> {
+        SettingsScreen(
+          menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
+          controllerInfo = controllerInfo,
+          inputState = inputState,
+          inputOffsetMs = inputOffsetMs,
+          onInputOffsetChange = { viewModel.setInputOffsetMs(it) },
+          autoSyncStatus = autoSyncStatus,
+          onToggleAutoSync = { viewModel.setAutoSyncEnabled(!autoSyncStatus.enabled) },
+          onOpenControllerSettings = { currentScreen = AppScreen.SETTINGS },
+          onNavigateBack = { currentScreen = AppScreen.HOME },
+          playerName = profile.displayName
+        )
+      }
+
       AppScreen.SETTINGS -> {
         ControllerSettingsScreen(
           menuInputs = if (screen == currentScreen) viewModel.menuInputs else NoPadInputs,
@@ -227,7 +270,7 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           },
           onNavigateBack = {
             viewModel.cancelCapture()
-            currentScreen = AppScreen.HOME
+            currentScreen = AppScreen.OPTIONS
           }
         )
       }

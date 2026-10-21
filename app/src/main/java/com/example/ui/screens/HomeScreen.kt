@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -48,7 +49,11 @@ import androidx.compose.ui.unit.sp
 import com.example.R
 import com.example.core.model.ControllerInfo
 import com.example.core.model.GameLane
+import com.example.core.model.Judgment
 import com.example.core.model.MenuInput
+import com.example.core.model.PlayerProfile
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import com.example.ui.components.NoPadInputs
 import com.example.ui.components.PadNavigation
 import kotlinx.coroutines.flow.Flow
@@ -65,6 +70,7 @@ import com.example.ui.components.smShadow
 import com.example.ui.theme.OpenSans
 import com.example.ui.theme.SmCharcoal
 import com.example.ui.theme.SmEasyGreen
+import com.example.ui.theme.SmP1Blue
 import com.example.ui.theme.SmP2Red
 import com.example.ui.theme.SmPlum
 import com.example.ui.theme.SmPlumDark
@@ -80,16 +86,41 @@ fun HomeScreen(
   controllerInfo: ControllerInfo,
   inputState: GameInputState,
   onStartGame: () -> Unit,
-  onOpenSettings: () -> Unit,
+  timingScale: Float,
+  onTimingScaleChange: (Float) -> Unit,
   onScanControllers: () -> Unit,
+  onOpenSettings: () -> Unit = {},
   modifier: Modifier = Modifier,
-  menuInputs: Flow<MenuInput> = NoPadInputs
+  menuInputs: Flow<MenuInput> = NoPadInputs,
+  inputOffsetMs: Int = 0,
+  onInputOffsetChange: (Int) -> Unit = {},
+  profile: PlayerProfile = PlayerProfile.GUEST,
+  onSelectProfile: (PlayerProfile) -> Unit = {},
+  /** Best grade tier across the profile's saved scores (1 = AAAA .. 17 = D), null if none. */
+  bestGradeTier: Int? = null,
+  /** Number of charts with a saved score for this profile. */
+  chartsPlayed: Int = 0,
+  /** Best DP% across the profile's saved scores. */
+  bestPercent: Double? = null,
+  autoSyncEnabled: Boolean = false,
+  onToggleAutoSync: () -> Unit = {}
 ) {
   // Title-menu cursor (dance mat: ↑/↓ move, Start/Circle choose)
   var cursor by remember { mutableIntStateOf(0) }
-  val actions = listOf(onStartGame, onOpenSettings, onScanControllers)
+  val step = Judgment.TIMING_SCALE_STEP
+  fun stepTiming(dir: Int) {
+    val next = timingScale + dir * step
+    // Tapping/confirming past the max wraps back to the minimum
+    onTimingScaleChange(
+      if (next > Judgment.MAX_TIMING_SCALE + 0.001f) Judgment.MIN_TIMING_SCALE
+      else next.coerceIn(Judgment.MIN_TIMING_SCALE, Judgment.MAX_TIMING_SCALE)
+    )
+  }
+  val actions = listOf(onStartGame, { stepTiming(1) }, onOpenSettings, onScanControllers)
   PadNavigation(menuInputs) { input ->
     when {
+      cursor == 1 && input == MenuInput.Arrow(GameLane.LEFT) -> stepTiming(-1)
+      cursor == 1 && input == MenuInput.Arrow(GameLane.RIGHT) -> stepTiming(1)
       input == MenuInput.Arrow(GameLane.UP) -> cursor = (cursor + actions.size - 1) % actions.size
       input == MenuInput.Arrow(GameLane.DOWN) -> cursor = (cursor + 1) % actions.size
       input.isConfirm -> actions[cursor]()
@@ -127,6 +158,14 @@ fun HomeScreen(
           ).smShadow(1.5f)
         )
         Spacer(modifier = Modifier.weight(1f))
+        if (!PROMINENT_PLAYER_CARD) {
+          ProfileSelector(
+            profile = profile,
+            bestGradeTier = bestGradeTier,
+            onClick = { onSelectProfile(nextProfile(profile)) }
+          )
+          Spacer(modifier = Modifier.width(12.dp))
+        }
         ConnectionBadge(isConnected = controllerInfo.isConnected)
       }
 
@@ -156,13 +195,26 @@ fun HomeScreen(
 
           Spacer(modifier = Modifier.height(30.dp))
 
-          InputTestPanel(
-            controllerInfo = controllerInfo,
-            inputState = inputState,
-            modifier = Modifier
-              .width(520.dp)
-              .graphicsLayer { alpha = menuIntro.value }
-          )
+          if (PROMINENT_PLAYER_CARD) {
+            PlayerPanel(
+              profile = profile,
+              bestGradeTier = bestGradeTier,
+              chartsPlayed = chartsPlayed,
+              bestPercent = bestPercent,
+              onSwitch = { onSelectProfile(nextProfile(profile)) },
+              modifier = Modifier
+                .width(520.dp)
+                .graphicsLayer { alpha = menuIntro.value }
+            )
+          } else {
+            InputTestPanel(
+              controllerInfo = controllerInfo,
+              inputState = inputState,
+              modifier = Modifier
+                .width(520.dp)
+                .graphicsLayer { alpha = menuIntro.value }
+            )
+          }
         }
 
         // Right: title-menu choices sliding in from the right edge
@@ -185,18 +237,26 @@ fun HomeScreen(
             modifier = Modifier.testTag("home_button_start_game")
           )
           SmMenuItem(
-            text = "CONTROLLER SETTINGS",
-            caption = "Map dance-mat panels & view raw input",
+            text = "TIMING WINDOW  ×${"%.2f".format(timingScale)}",
+            caption = "± ${(Judgment.W1.windowMs * timingScale).let { "%.1f".format(it) }} ms Flawless • ± ${Judgment.missThresholdMsFor(timingScale)} ms max  •  ← → adjust",
             icon = Icons.Default.Settings,
             highlighted = cursor == 1,
+            onClick = { stepTiming(1) },
+            modifier = Modifier.testTag("home_button_timing_window")
+          )
+          SmMenuItem(
+            text = "SETTINGS",
+            caption = "Input status, sync offset & controller mapping",
+            icon = Icons.Default.Build,
+            highlighted = cursor == 2,
             onClick = onOpenSettings,
-            modifier = Modifier.testTag("home_button_controller_settings")
+            modifier = Modifier.testTag("home_button_settings")
           )
           SmMenuItem(
             text = "RESCAN DEVICES",
             caption = "Search for the USB dance mat again",
             icon = Icons.Default.Refresh,
-            highlighted = cursor == 2,
+            highlighted = cursor == 3,
             onClick = onScanControllers,
             modifier = Modifier.testTag("home_button_rescan")
           )
@@ -205,7 +265,8 @@ fun HomeScreen(
 
       SmFooter(
         text = "Pad: ↑ ↓ choose  •  START to select  •  or tap a menu item",
-        trailing = "RhythmPad7 v0.3.0"
+        trailing = "RhythmPad7 v0.3.0",
+        playerName = profile.displayName
       )
     }
   }
@@ -305,7 +366,7 @@ private fun ConnectionBadge(isConnected: Boolean) {
 }
 
 @Composable
-private fun InputTestPanel(
+internal fun InputTestPanel(
   controllerInfo: ControllerInfo,
   inputState: GameInputState,
   modifier: Modifier = Modifier
@@ -386,3 +447,171 @@ private fun InputTestPanel(
     }
   }
 }
+
+
+/**
+ * StepMania ScreenSelectProfile-style player card: "PLAYER 1" label + profile name + best grade.
+ * Tap to cycle through profiles; results are saved under the active one.
+ */
+@Composable
+private fun ProfileSelector(profile: PlayerProfile, bestGradeTier: Int?, onClick: () -> Unit) {
+  val shape = com.example.ui.components.ChamferShape(12.dp)
+  val labelStyle = TextStyle(
+    fontFamily = OpenSans,
+    fontWeight = FontWeight.Bold,
+    fontSize = 9.sp,
+    letterSpacing = 1.5.sp,
+    color = Color.White.copy(alpha = 0.7f)
+  )
+  Row(
+    modifier = Modifier
+      .height(52.dp)
+      .clip(shape)
+      .background(Brush.verticalGradient(listOf(SmPlum, SmPlumDark)))
+      .border(1.dp, Color(0x66FFFFFF), shape)
+      .clickable(onClick = onClick)
+      // Extra side padding so content clears the 12 dp chamfer points
+      .padding(horizontal = 24.dp)
+      .testTag("home_profile_selector"),
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    // Both columns share the same label row + fixed-height value row, so labels and values line up
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+      Text(text = "PLAYER 1", style = labelStyle)
+      Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.CenterStart) {
+        Text(
+          text = profile.displayName.uppercase(),
+          style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, letterSpacing = 1.sp, color = Color.White).smShadow(1.5f),
+          maxLines = 1
+        )
+      }
+    }
+    if (bestGradeTier != null) {
+      Spacer(modifier = Modifier.width(16.dp))
+      Box(
+        modifier = Modifier
+          .width(1.dp)
+          .height(30.dp)
+          .background(Color(0x40FFFFFF))
+      )
+      Spacer(modifier = Modifier.width(16.dp))
+      Column(
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+      ) {
+        Text(text = "BEST", style = labelStyle)
+        Box(modifier = Modifier.height(24.dp), contentAlignment = Alignment.Center) {
+          Image(
+            painter = painterResource(gradeDrawableForTier(bestGradeTier)),
+            contentDescription = "Best grade",
+            modifier = Modifier.height(22.dp)
+          )
+        }
+      }
+    }
+  }
+}
+
+
+/** true = large PLAYER 1 panel under the logo (input status lives in Settings); false = compact card in the top bar. */
+private const val PROMINENT_PLAYER_CARD = true
+
+private fun nextProfile(current: PlayerProfile): PlayerProfile {
+  val all = PlayerProfile.ALL
+  return all[(all.indexOf(current) + 1) % all.size]
+}
+
+/**
+ * Large StepMania-style player panel (same SmPanel frame and width as INPUT STATUS):
+ * profile name, best grade, best score and charts played. Tap anywhere to switch profile.
+ */
+@Composable
+private fun PlayerPanel(
+  profile: PlayerProfile,
+  bestGradeTier: Int?,
+  chartsPlayed: Int,
+  bestPercent: Double?,
+  onSwitch: () -> Unit,
+  modifier: Modifier = Modifier
+) {
+  val labelStyle = TextStyle(
+    fontFamily = OpenSans,
+    fontWeight = FontWeight.Bold,
+    fontSize = 11.sp,
+    letterSpacing = 1.5.sp,
+    color = Color.White.copy(alpha = 0.65f)
+  )
+  SmPanel(
+    modifier = modifier
+      .clickable(onClick = onSwitch)
+      .testTag("home_player_panel"),
+    title = "PLAYER 1",
+    // Plum body to match the title-menu items
+    titleColor = Color(0xFFB13C61),
+    background = Brush.verticalGradient(listOf(Color(0xE6882D47), Color(0xE64A1827))),
+    titleTrailing = {
+      Text(
+        text = "TAP TO SWITCH  ⇄",
+        style = TextStyle(
+          fontFamily = OpenSans,
+          fontWeight = FontWeight.Bold,
+          fontSize = 12.sp,
+          letterSpacing = 1.sp,
+          color = Color.White.copy(alpha = 0.75f)
+        )
+      )
+    }
+  ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = profile.displayName.uppercase(),
+          style = TextStyle(
+            fontFamily = OpenSans,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 40.sp,
+            letterSpacing = 2.sp,
+            color = Color.White
+          ).smShadow(2f),
+          maxLines = 1
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+          Column {
+            Text(text = "BEST SCORE", style = labelStyle)
+            Text(
+              text = bestPercent?.let { String.format(java.util.Locale.US, "%.2f%%", it) } ?: "—",
+              style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.White)
+            )
+          }
+          Column {
+            Text(text = "CHARTS PLAYED", style = labelStyle)
+            Text(
+              text = "$chartsPlayed",
+              style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = Color.White)
+            )
+          }
+        }
+      }
+      Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = "BEST GRADE", style = labelStyle)
+        Spacer(modifier = Modifier.height(4.dp))
+        Box(modifier = Modifier.height(64.dp), contentAlignment = Alignment.Center) {
+          if (bestGradeTier != null) {
+            Image(
+              painter = painterResource(gradeDrawableForTier(bestGradeTier)),
+              contentDescription = "Best grade",
+              modifier = Modifier.height(60.dp)
+            )
+          } else {
+            Text(
+              text = "—",
+              style = TextStyle(fontFamily = OpenSans, fontWeight = FontWeight.Bold, fontSize = 28.sp, color = SmTextMuted)
+            )
+          }
+        }
+      }
+    }
+  }
+}
+

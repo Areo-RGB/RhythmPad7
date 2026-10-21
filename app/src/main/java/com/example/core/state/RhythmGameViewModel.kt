@@ -12,6 +12,7 @@ import com.example.core.audio.SongAudio
 import com.example.core.chart.Chart
 import com.example.core.chart.Song
 import com.example.core.chart.SongLibrary
+import com.example.core.gameplay.AutoSync
 import com.example.core.gameplay.GameplayClock
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.gameplay.ScrollMod
@@ -22,6 +23,7 @@ import com.example.core.model.ControllerMapping
 import com.example.core.model.GameInputEvent
 import com.example.core.model.GameLane
 import com.example.core.model.MenuInput
+import com.example.core.model.PlayerProfile
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import com.example.core.model.RawInputEvent
@@ -50,8 +52,34 @@ class RhythmGameViewModel(
   private val songAudio: SongAudio? = null,
   private val assets: AssetManager? = null,
   private val prefs: SharedPreferences? = null,
-  private val scoreStore: ScoreStore? = null
+  private var scoreStore: ScoreStore? = null,
+  private val scoreStoreForProfile: ((PlayerProfile) -> ScoreStore)? = null
 ) : ViewModel() {
+
+  // Active player profile (StepMania ScreenSelectProfile); results are saved under it
+  private val _profile = MutableStateFlow(PlayerProfile.byId(prefs?.getString(PREF_PROFILE, null)))
+  val profile: StateFlow<PlayerProfile> = _profile.asStateFlow()
+
+  init {
+    scoreStoreForProfile?.let { scoreStore = it(_profile.value) }
+  }
+
+  fun selectProfile(profile: PlayerProfile) {
+    if (profile == _profile.value) return
+    _profile.value = profile
+    prefs?.edit()?.putString(PREF_PROFILE, profile.id)?.apply()
+    _lastResult.value = null
+    scoreStoreForProfile?.let { factory ->
+      viewModelScope.launch {
+        val store = withContext(Dispatchers.IO) { factory(profile) }
+        if (_profile.value == profile) {
+          scoreStore = store
+          _bestScores.value = store.scores
+        }
+      }
+    }
+  }
+
 
   // High score tracking per chart and practice pattern
   private val _bestScores = MutableStateFlow<Map<String, ScoreRecord>>(scoreStore?.scores.orEmpty())
@@ -69,6 +97,57 @@ class RhythmGameViewModel(
   fun setScrollMod(mod: ScrollMod) {
     _scrollMod.value = mod
     prefs?.edit()?.putString(PREF_SCROLL_MOD, mod.serialize())?.apply()
+  }
+
+  // Global input offset (ms, positive = player/mat registers late), persisted.
+  // Subtracted from every step's timestamp before judging, like StepMania's GlobalOffsetSeconds.
+  private val _inputOffsetMs = MutableStateFlow(prefs?.getInt(PREF_INPUT_OFFSET, 0) ?: 0)
+  val inputOffsetMs: StateFlow<Int> = _inputOffsetMs.asStateFlow()
+
+  fun setInputOffsetMs(value: Int) {
+    val clamped = value.coerceIn(-MAX_INPUT_OFFSET_MS, MAX_INPUT_OFFSET_MS)
+    _inputOffsetMs.value = clamped
+    prefs?.edit()?.putInt(PREF_INPUT_OFFSET, clamped)?.apply()
+  }
+
+  /** Auto-sync (StepMania AutosyncMachine): tunes [inputOffsetMs] from consistent steps. */
+  data class AutoSyncStatus(
+    val enabled: Boolean = true,
+    val collected: Int = 0,
+    val total: Int = AutoSync.SAMPLE_COUNT,
+    val lastMessage: String? = null,
+    val messageSeq: Int = 0
+  )
+
+  private val autoSync = AutoSync()
+  private val _autoSyncStatus = MutableStateFlow(AutoSyncStatus())
+  val autoSyncStatus: StateFlow<AutoSyncStatus> = _autoSyncStatus.asStateFlow()
+
+  fun setAutoSyncEnabled(enabled: Boolean) {
+    autoSync.reset()
+    _autoSyncStatus.value = _autoSyncStatus.value.copy(enabled = enabled, collected = 0, lastMessage = null)
+  }
+
+  private fun feedAutoSync(errorMs: Long) {
+    val status = _autoSyncStatus.value
+    if (!status.enabled) return
+    when (val result = autoSync.addSample(errorMs.toDouble())) {
+      null -> _autoSyncStatus.value = status.copy(collected = autoSync.collected)
+      is AutoSync.Result.Applied -> {
+        val correction = Math.round(result.correctionMs).toInt()
+        setInputOffsetMs(_inputOffsetMs.value + correction)
+        _autoSyncStatus.value = status.copy(
+          collected = 0,
+          lastMessage = "Auto-sync: offset ${if (correction >= 0) "+" else ""}$correction ms → ${_inputOffsetMs.value} ms",
+          messageSeq = status.messageSeq + 1
+        )
+      }
+      is AutoSync.Result.Rejected -> _autoSyncStatus.value = status.copy(
+        collected = 0,
+        lastMessage = "Auto-sync: steps too uneven (±${result.stdDevMs.toInt()} ms), not applied",
+        messageSeq = status.messageSeq + 1
+      )
+    }
   }
 
   // Song library loaded from assets/songs (StepMania .ssc / .sm)
@@ -174,10 +253,16 @@ class RhythmGameViewModel(
         } else {
           currentRound.currentGameTimeMs
         }
-        _roundState.value = currentRound.onLanePressed(
+        val judged = currentRound.onLanePressed(
           lane = event.lane,
-          inputGameTimeMs = hitGameTimeMs
+          inputGameTimeMs = hitGameTimeMs - _inputOffsetMs.value
         )
+        _roundState.value = judged
+        if (judged.judgmentSequence != currentRound.judgmentSequence) {
+          judged.lastJudgment
+            ?.takeIf { it.judgment != com.example.core.model.Judgment.MISS }
+            ?.let { feedAutoSync(it.timingErrorMs) }
+        }
       }
     }
   }
@@ -449,6 +534,9 @@ class RhythmGameViewModel(
   companion object {
     private const val TAG = "AudioSync"
     private const val PREF_SCROLL_MOD = "scroll_mod"
+    private const val PREF_PROFILE = "player_profile"
+    private const val PREF_INPUT_OFFSET = "input_offset_ms"
+    const val MAX_INPUT_OFFSET_MS = 250
     const val AUDIO_SYNC_INTERVAL_MS = 250L
     const val AUDIO_SYNC_MIN_POSITION_MS = 150L
     const val AUDIO_SYNC_DEADBAND_MS = 8L
@@ -466,7 +554,7 @@ class RhythmGameViewModel(
         songAudio = ExoSongAudio(appContext),
         assets = appContext.assets,
         prefs = appContext.getSharedPreferences("rhythmpad7_settings", Context.MODE_PRIVATE),
-        scoreStore = ScoreStore(java.io.File(appContext.filesDir, "scores.json"))
+        scoreStoreForProfile = { profile -> ScoreStore(java.io.File(appContext.filesDir, profile.scoreFileName)) }
       ) as T
     }
   }

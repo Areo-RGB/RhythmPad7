@@ -43,6 +43,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlendMode
@@ -160,7 +162,9 @@ fun GameplayScreen(
   onNavigateBack: () -> Unit,
   modifier: Modifier = Modifier,
   menuInputs: Flow<MenuInput> = NoPadInputs,
-  lastSubmitResult: SubmitResult? = null
+  lastSubmitResult: SubmitResult? = null,
+  autoSyncStatus: com.example.core.state.RhythmGameViewModel.AutoSyncStatus? = null,
+  inputOffsetMs: Int = 0
 ) {
   BackHandler(onBack = onNavigateBack)
 
@@ -366,6 +370,14 @@ fun GameplayScreen(
           JudgmentLine("MAX COMBO", null, roundState.maxCombo, SmMaxCombo)
         }
       }
+    }
+
+    if (autoSyncStatus != null && autoSyncStatus.enabled && !roundState.isCompleted) {
+      AutoSyncBadge(
+        status = autoSyncStatus,
+        offsetMs = inputOffsetMs,
+        modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+      )
     }
 
     // =========================================================================
@@ -1137,4 +1149,31 @@ private fun EvaluationOverlay(
       }
     }
   }
+}
+
+@Composable
+private fun AutoSyncBadge(
+  status: com.example.core.state.RhythmGameViewModel.AutoSyncStatus,
+  offsetMs: Int,
+  modifier: Modifier = Modifier
+) {
+  // Show the latest auto-sync result for a few seconds, then fall back to sample progress
+  var showMessage by remember { mutableStateOf(false) }
+  LaunchedEffect(status.messageSeq) {
+    if (status.lastMessage != null) {
+      showMessage = true
+      kotlinx.coroutines.delay(4000)
+      showMessage = false
+    }
+  }
+  val text = if (showMessage && status.lastMessage != null) status.lastMessage
+    else "AUTO-SYNC  ${status.collected}/${status.total}  •  offset ${if (offsetMs > 0) "+" else ""}$offsetMs ms"
+  Text(
+    text = text,
+    style = TextStyle(fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.White),
+    modifier = modifier
+      .clip(RoundedCornerShape(6.dp))
+      .background(Color(0xCC000000))
+      .padding(horizontal = 12.dp, vertical = 4.dp)
+  )
 }

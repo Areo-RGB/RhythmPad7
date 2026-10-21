@@ -130,6 +130,7 @@ fun MusicSelectScreen(
   onStartPractice: () -> Unit,
   onPreview: (Song?) -> Unit,
   onNavigateBack: () -> Unit,
+  playerName: String? = null,
   modifier: Modifier = Modifier,
   state: MusicSelectState = remember { MusicSelectState() },
   scrollMod: ScrollMod = ScrollMod.DEFAULT,
@@ -291,7 +292,8 @@ fun MusicSelectScreen(
 
       SmFooter(
         text = "Pad: ↑ ↓ song  •  ← → difficulty  •  START play  •  SELECT back  •  △ □ speed",
-        trailing = "RhythmPad7 v0.3.0"
+        trailing = "RhythmPad7 v0.3.0",
+        playerName = playerName
       )
     }
   }
