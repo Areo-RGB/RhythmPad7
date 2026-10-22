@@ -19,6 +19,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -56,7 +58,8 @@ class MainActivity : ComponentActivity() {
 
     setContent {
       RhythmPadTheme {
-        Surface(modifier = Modifier.fillMaxSize()) {
+        // Expose Compose testTags as resource IDs so Maestro flows can select by id (see .maestro/)
+        Surface(modifier = Modifier.fillMaxSize().semantics { @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class) testTagsAsResourceId = true }) {
           RhythmAppContent(viewModel = viewModel)
         }
       }

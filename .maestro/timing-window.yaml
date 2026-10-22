@@ -1,0 +1,26 @@
+# Timing window steps x0.50..x2.00, wraps to x0.50, and is saved. Restores x1.00.
+# Matches both "1,00" (German locale) and "1.00".
+appId: com.rhythmpad7.app
+name: timing-window
+---
+- launchApp:
+    stopApp: true
+- repeat:
+    while:
+      notVisible: "TIMING WINDOW.*2[.,]00"
+    commands:
+      - tapOn:
+          id: home_button_timing_window
+- tapOn:
+    id: home_button_timing_window
+- assertVisible: "TIMING WINDOW.*0[.,]50"
+- launchApp:
+    stopApp: true
+- assertVisible: "TIMING WINDOW.*0[.,]50"
+- repeat:
+    while:
+      notVisible: "TIMING WINDOW.*1[.,]00"
+    commands:
+      - tapOn:
+          id: home_button_timing_window
+- assertVisible: "TIMING WINDOW.*1[.,]00"

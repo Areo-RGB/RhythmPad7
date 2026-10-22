@@ -51,7 +51,23 @@
    - Windows must follow StepMania `dance` defaults: W1 (±22.5 ms), W2 (±45 ms), W3 (±90 ms), W4 (±135 ms), W5 (±180 ms), Miss (>180 ms).
    - Jumps score as one row decided by the arrow with the largest timing offset (`LastTapNoteScoreTrack`), while combo adds every tap. Combo resets on W4, W5, or Miss.
    - Dance Points % (`percentDp`) is truncated to 2 decimals (`MakePercentScore`).
-   - High scores are persisted in `scores.json` keyed by `folder#DIFFICULTY` (or `practice`) with `chartCheck` CRC verification. Comparison prioritizes `percentDp`, with equal-DP tie-breaks decided by better `gradeTier` (lower tier number). Chart changes drop old records.
+   - The windows are multiplied by `Judgment.timingWindowScale` (StepMania `TimingWindowScale`, ×0.5–×2.0, Home → TIMING WINDOW, saved in `rhythmpad_settings`). The defaults above are ×1.0; use `Judgment.missThresholdMs`, never the raw `MISS_THRESHOLD_MS`, in gameplay code.
+   - High scores are persisted per profile (`PlayerProfile.scoreFileName`: `scores-finley.json`, Guest = `scores.json`) keyed by `folder#DIFFICULTY` (or `practice`) with `chartCheck` CRC verification. Comparison prioritizes `percentDp`, with equal-DP tie-breaks decided by better `gradeTier` (lower tier number). Chart changes drop old records.
+
+8. **Input Offset, Auto-Sync & Debounce (`RhythmGameViewModel.kt`, `AutoSync.kt`, `InputDebouncer.kt`)**
+   - Every step's game time is shifted by the saved `inputOffsetMs` before judging (positive = mat registers late). Arrows are never moved by it.
+   - Auto-sync (ITGmania `AdjustSync`) is ON by default: every 24 non-Miss hits, if stddev < 30 ms, the mean error is added to the offset; otherwise nothing changes. Feed it only the hit's own `timingErrorMs`.
+   - Lane key events pass through a 20 ms per-key `InputDebouncer` (ITGmania `InputDebounceTime`) in `ControllerManager`: presses report immediately, chatter releases are swallowed, delayed reports keep the raw `eventTime`.
+
+9. **Player Profiles (`PlayerProfile.kt`)**
+   - Profiles are Finley (default) and Guest (StepMania machine scores). The active profile is chosen by tapping the PLAYER 1 panel on Home, shown in the footer (`SmFooter.playerName`), and saved as `player_profile`.
+   - Automated runs that finish rounds must play as Guest so Finley's scores stay real.
+
+---
+
+## Testing
+
+See `docs/TESTING.md`. Unit tests (`./gradlew :app:testDebugUnitTest`) include a **virtual mat** (`MockMatAutoSyncTest`, `MockMatTimingWindowTest`) that plays the practice chart with chosen lag/jitter — use it for any change to judgments, scoring, offset or auto-sync, because Maestro and `adb input` cannot act as the mat. UI regressions: Maestro flows in `.maestro/` (`cd .maestro && maestro --device <serial> test .`); they select Compose `testTag`s by `id:` and must leave the app on Finley, timing ×1.00, auto-sync ON.
 
 ---
 
