@@ -41,6 +41,9 @@ so flows select by `id:` (e.g. `home_button_settings`). Prefer ids over on-scree
 | `profile` | Switch to Guest, restart, still Guest, switch back to Finley; footer follows. |
 | `timing-window` | Steps to ×2.00, wraps to ×0.50, survives a restart; restores ×1.00. Regexes accept `1,00` (German locale) and `1.00`. |
 | `settings` | Reset offset to 0, toggle auto-sync off/on, Controller Settings round trip. |
+| `speed-control` | In-game speed stepper clamps at M120 and C450 (no wrap), is saved across a restart; leaves M180. |
+| `endless` | Endless plays a library song ("Endless · <song>", EVENT STAGE) and generates notes; difficulty clamps at BEGINNER/CHALLENGE and is saved; Crossovers chip toggles and is saved; Jacks chip hidden at Beginner (no jacks in that pool); HOLDS switch flips; back goes Home. Leaves MEDIUM, all chips on, holds off. |
+| `song-folder` | Needs the 5 Club Fantastic songs in `/sdcard/RhythmPad7/Songs` (`tools/push_songs.sh`): song select shows 8 songs incl. BACK UP/DNA/Fantastic World, no `128.000000` BPM, BACK UP starts with its background. |
 | `full-round` | Plays the practice chart with no input **as Guest** (so Finley's scores are never touched), checks the results screen, switches back to Finley. ~1.5 min. |
 | `screenshots` | Captures home, settings, controller settings, song select into `screenshots/` (git-ignored) for design review. |
 
@@ -49,6 +52,11 @@ Every flow must leave the app on **Finley** with timing ×1.00 and auto-sync ON.
 
 Run all: `cd .maestro && maestro --device 4c637b9e test .` (tablet serial from `adb devices`).
 One flow: `maestro --device 4c637b9e test .maestro/smoke.yaml`.
+
+Without the Maestro driver (see quirk below): `tools/run_flows.sh .maestro/endless.yaml ...` runs flows
+through the `phone` CLI and force-stops the app over adb before each flow. `phone` cannot kill the app
+mid-flow, so `subflows/to-home.yaml` backs out of gameplay after every `launchApp`; restart
+persistence checks are therefore weaker there (in-memory state survives).
 
 ### Xiaomi tablet quirk
 

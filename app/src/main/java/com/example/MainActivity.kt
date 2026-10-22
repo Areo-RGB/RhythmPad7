@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     hideSystemBars()
+    requestAllFilesAccess()
 
     setContent {
       RhythmPadTheme {
@@ -70,6 +71,29 @@ class MainActivity : ComponentActivity() {
     super.onResume()
     hideSystemBars()
     viewModel.onActivityResumed()
+    // Returning from the "All files access" settings screen: rescan the shared Songs folder
+    if (awaitingFilesAccess && hasAllFilesAccess()) {
+      awaitingFilesAccess = false
+      viewModel.reloadSongs()
+    }
+  }
+
+  private var awaitingFilesAccess = false
+
+  private fun hasAllFilesAccess() = android.os.Environment.isExternalStorageManager()
+
+  /** Songs in /sdcard/RhythmPad7/Songs need "All files access" (MANAGE_EXTERNAL_STORAGE). */
+  private fun requestAllFilesAccess() {
+    if (hasAllFilesAccess()) return
+    awaitingFilesAccess = true
+    runCatching {
+      startActivity(
+        android.content.Intent(
+          android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+          android.net.Uri.parse("package:$packageName")
+        )
+      )
+    }
   }
 
   override fun onPause() {
@@ -138,6 +162,8 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
   val lastSubmitResult by viewModel.lastResult.collectAsStateWithLifecycle()
   val musicSelectState = remember { MusicSelectState() }
   val scrollMod by viewModel.scrollMod.collectAsStateWithLifecycle()
+  val holdsEnabled by viewModel.holdsEnabled.collectAsStateWithLifecycle()
+  val endlessBlockedTech by viewModel.endlessBlockedTech.collectAsStateWithLifecycle()
 
   AnimatedContent(
     targetState = currentScreen,
@@ -152,6 +178,10 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           inputState = inputState,
           onStartGame = {
             currentScreen = AppScreen.MUSIC_SELECT
+          },
+          onStartEndless = {
+            viewModel.startEndlessRound()
+            currentScreen = AppScreen.GAMEPLAY
           },
           timingScale = timingScale,
           onTimingScaleChange = { scale ->
@@ -214,6 +244,13 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
           isDebugOverlayVisible = isDebugVisible,
           isPaused = isPaused,
           lastSubmitResult = lastSubmitResult,
+          onScrollModChange = { viewModel.setScrollMod(it) },
+          onEndlessLevelChange = { viewModel.setEndlessLevel(it) },
+          holdsEnabled = holdsEnabled,
+          onHoldsEnabledChange = { viewModel.setHoldsEnabled(it) },
+          endlessBlockedTech = endlessBlockedTech,
+          endlessTechCounts = viewModel.endlessTechCounts,
+          onToggleEndlessTech = { viewModel.toggleEndlessTech(it) },
           onSyncRoundClock = {
             viewModel.syncRoundClock()
           },
@@ -230,8 +267,9 @@ fun RhythmAppContent(viewModel: RhythmGameViewModel) {
             viewModel.restartRound()
           },
           onNavigateBack = {
+            val wasEndless = roundState.isEndless
             viewModel.stopRound()
-            currentScreen = AppScreen.MUSIC_SELECT
+            currentScreen = if (wasEndless) AppScreen.HOME else AppScreen.MUSIC_SELECT
           }
         )
       }

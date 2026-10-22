@@ -8,5 +8,8 @@ executionOrder:
     - settings
     - profile
     - timing-window
+    - speed-control
+    - endless
+    - song-folder
     - full-round
     - screenshots

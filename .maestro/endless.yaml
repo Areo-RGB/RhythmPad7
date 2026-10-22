@@ -1,0 +1,104 @@
+# Endless mode: plays music from the song library, no arrows during the countdown,
+# difficulty stepper clamps and is saved, tech chips and HOLDS switch toggle, back goes home.
+# Leaves difficulty on MEDIUM, all tech chips on, holds off.
+appId: com.rhythmpad7.app
+name: endless
+---
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/to-home.yaml
+- tapOn:
+    id: home_button_endless
+# Music: the round is titled after the library song it plays ("Endless · <song>")
+- assertVisible: "Endless · .+"
+- assertVisible: "EVENT STAGE"
+# Arrows run during play: the note counter's total grows past 0 once measures are generated
+- extendedWaitUntil:
+    visible: "\\d+ / [1-9]\\d* notes"
+    timeout: 15000
+# Difficulty: clamps at BEGINNER and CHALLENGE
+- repeat:
+    times: 5
+    commands:
+      - tapOn:
+          id: gameplay_button_level_down
+- assertVisible:
+    id: gameplay_level_label
+    text: "BEGINNER"
+- repeat:
+    times: 5
+    commands:
+      - tapOn:
+          id: gameplay_button_level_up
+- assertVisible:
+    id: gameplay_level_label
+    text: "CHALLENGE"
+# Tech filter (ITGmania TechCounts): Challenge has every category except none
+- assertVisible:
+    id: gameplay_tech_crossovers
+    checked: true
+- assertVisible:
+    id: gameplay_tech_footswitches
+- assertVisible:
+    id: gameplay_tech_jacks
+- assertVisible:
+    id: gameplay_tech_brackets
+- tapOn:
+    id: gameplay_tech_crossovers
+- assertVisible:
+    id: gameplay_tech_crossovers
+    checked: false
+# Saved across restarts
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/to-home.yaml
+- tapOn:
+    id: home_button_endless
+- assertVisible:
+    id: gameplay_level_label
+    text: "CHALLENGE"
+- assertVisible:
+    id: gameplay_tech_crossovers
+    checked: false
+- tapOn:
+    id: gameplay_tech_crossovers
+- assertVisible:
+    id: gameplay_tech_crossovers
+    checked: true
+# Beginner charts have no jacks, so that chip is hidden there
+- repeat:
+    times: 4
+    commands:
+      - tapOn:
+          id: gameplay_button_level_down
+- assertVisible:
+    id: gameplay_level_label
+    text: "BEGINNER"
+- assertNotVisible:
+    id: gameplay_tech_jacks
+# HOLDS switch flips both ways
+- tapOn:
+    id: gameplay_toggle_holds
+- assertVisible:
+    id: gameplay_toggle_holds
+    checked: true
+- tapOn:
+    id: gameplay_toggle_holds
+- assertVisible:
+    id: gameplay_toggle_holds
+    checked: false
+- repeat:
+    times: 2
+    commands:
+      - tapOn:
+          id: gameplay_button_level_up
+- assertVisible:
+    id: gameplay_level_label
+    text: "MEDIUM"
+# Endless returns to the home screen, not song select
+- tapOn:
+    id: gameplay_button_back
+- assertVisible:
+    id: home_button_start_game

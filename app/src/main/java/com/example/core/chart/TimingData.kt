@@ -89,6 +89,10 @@ class TimingData(
   val maxBpm: Double get() = bpmSegs.maxOf { it.value }
   val hasWarps: Boolean get() = warpSegs.isNotEmpty()
 
+  /** One BPM and no stops/delays/warps: a plain beat grid (Endless mode can lay measures on it). */
+  val isConstantTempo: Boolean
+    get() = bpmSegs.map { it.value }.distinct().size == 1 && stopSegs.isEmpty() && delaySegs.isEmpty() && warpSegs.isEmpty()
+
   private class Start {
     var bpm = 0
     var warp = 0

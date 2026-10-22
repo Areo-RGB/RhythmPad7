@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -86,6 +87,7 @@ fun HomeScreen(
   controllerInfo: ControllerInfo,
   inputState: GameInputState,
   onStartGame: () -> Unit,
+  onStartEndless: () -> Unit = {},
   timingScale: Float,
   onTimingScaleChange: (Float) -> Unit,
   onScanControllers: () -> Unit,
@@ -116,11 +118,11 @@ fun HomeScreen(
       else next.coerceIn(Judgment.MIN_TIMING_SCALE, Judgment.MAX_TIMING_SCALE)
     )
   }
-  val actions = listOf(onStartGame, { stepTiming(1) }, onOpenSettings, onScanControllers)
+  val actions = listOf(onStartGame, onStartEndless, { stepTiming(1) }, onOpenSettings, onScanControllers)
   PadNavigation(menuInputs) { input ->
     when {
-      cursor == 1 && input == MenuInput.Arrow(GameLane.LEFT) -> stepTiming(-1)
-      cursor == 1 && input == MenuInput.Arrow(GameLane.RIGHT) -> stepTiming(1)
+      cursor == 2 && input == MenuInput.Arrow(GameLane.LEFT) -> stepTiming(-1)
+      cursor == 2 && input == MenuInput.Arrow(GameLane.RIGHT) -> stepTiming(1)
       input == MenuInput.Arrow(GameLane.UP) -> cursor = (cursor + actions.size - 1) % actions.size
       input == MenuInput.Arrow(GameLane.DOWN) -> cursor = (cursor + 1) % actions.size
       input.isConfirm -> actions[cursor]()
@@ -237,10 +239,18 @@ fun HomeScreen(
             modifier = Modifier.testTag("home_button_start_game")
           )
           SmMenuItem(
+            text = "ENDLESS",
+            caption = "Non-stop patterns from 70+ charts • change speed & difficulty live",
+            icon = Icons.Default.AllInclusive,
+            highlighted = cursor == 1,
+            onClick = onStartEndless,
+            modifier = Modifier.testTag("home_button_endless")
+          )
+          SmMenuItem(
             text = "TIMING WINDOW  ×${"%.2f".format(timingScale)}",
             caption = "± ${(Judgment.W1.windowMs * timingScale).let { "%.1f".format(it) }} ms Flawless • ± ${Judgment.missThresholdMsFor(timingScale)} ms max  •  ← → adjust",
             icon = Icons.Default.Settings,
-            highlighted = cursor == 1,
+            highlighted = cursor == 2,
             onClick = { stepTiming(1) },
             modifier = Modifier.testTag("home_button_timing_window")
           )
@@ -248,7 +258,7 @@ fun HomeScreen(
             text = "SETTINGS",
             caption = "Input status, sync offset & controller mapping",
             icon = Icons.Default.Build,
-            highlighted = cursor == 2,
+            highlighted = cursor == 3,
             onClick = onOpenSettings,
             modifier = Modifier.testTag("home_button_settings")
           )
@@ -256,7 +266,7 @@ fun HomeScreen(
             text = "RESCAN DEVICES",
             caption = "Search for the USB dance mat again",
             icon = Icons.Default.Refresh,
-            highlighted = cursor == 3,
+            highlighted = cursor == 4,
             onClick = onScanControllers,
             modifier = Modifier.testTag("home_button_rescan")
           )

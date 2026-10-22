@@ -10,7 +10,7 @@ android {
 
   defaultConfig {
     applicationId = "com.rhythmpad7.app"
-    minSdk = 24
+    minSdk = 35
     targetSdk = 36
     versionCode = 4
     versionName = "0.3.0"

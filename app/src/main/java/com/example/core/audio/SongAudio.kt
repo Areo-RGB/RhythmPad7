@@ -38,8 +38,9 @@ class ExoSongAudio(context: Context) : SongAudio {
   private var preparedPath: String? = null
   private var isPreview = false
 
+  /** Absolute paths are device files (Songs folder), anything else is relative to `assets/`. */
   private fun assetUri(path: String): Uri =
-    Uri.parse("asset:///" + path.split('/').joinToString("/") { Uri.encode(it) })
+    if (path.startsWith("/")) Uri.fromFile(java.io.File(path)) else Uri.parse("asset:///" + path.split('/').joinToString("/") { Uri.encode(it) })
 
   override fun prepare(assetPath: String) {
     isPreview = false

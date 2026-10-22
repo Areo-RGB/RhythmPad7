@@ -116,8 +116,15 @@ data class GameplayRoundState(
   val timing: TimingData? = null,
   val scrollMod: ScrollMod = ScrollMod.DEFAULT,
   /** Highest displayed BPM (M-mod reference). */
-  val readBpm: Double = bpm.toDouble()
+  val readBpm: Double = bpm.toDouble(),
+  /** Endless mode difficulty (0 = Beginner .. 4 = Challenge); null for normal rounds. */
+  val endlessLevel: Int? = null,
+  /** Next measure index the endless generator will append. */
+  val endlessNextMeasure: Int = 0
 ) {
+  val isEndless: Boolean
+    get() = endlessLevel != null
+
   val isSongRound: Boolean
     get() = musicStartMs != null && timing != null
 
@@ -344,7 +351,7 @@ data class GameplayRoundState(
 
     val lastNoteTimeMs = updatedNotes.maxOfOrNull { it.endTimeMs } ?: 0L
     val allJudged = updatedNotes.all { it.state != NoteState.PENDING && it.holdResult != HoldResult.ACTIVE }
-    val roundFinished = allJudged && clampedTimeMs >= (lastNoteTimeMs + POST_ROUND_BUFFER_MS)
+    val roundFinished = !isEndless && allJudged && clampedTimeMs >= (lastNoteTimeMs + POST_ROUND_BUFFER_MS)
 
     if (!anyNoteChanged && !roundFinished && clampedTimeMs == currentGameTimeMs) {
       return this

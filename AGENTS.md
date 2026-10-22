@@ -4,6 +4,7 @@
 - **Application**: `RhythmPad7` (`com.rhythmpad7.app`)
 - **Current Version**: `0.3.0` (`versionCode = 4`)
 - **Target Hardware**: Xiaomi Pad 7 (Landscape) + Microntek USB Dance Mat (`VID 0x0079`, `PID 0x0006`)
+- **No backwards compatibility needed**: personal app for one tablet. Don't keep old code paths, migrations for saved data/prefs, or shims for older Android versions; change formats and APIs freely.
 
 ---
 

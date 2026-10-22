@@ -1,0 +1,32 @@
+# Songs pushed to /sdcard/RhythmPad7/Songs (tools/push_songs.sh) appear in song select next to
+# the bundled ones and play with their background. Needs the 5 Club Fantastic songs on the device.
+appId: com.rhythmpad7.app
+name: song-folder
+---
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/to-home.yaml
+- runFlow:
+    file: subflows/ensure-guest.yaml
+- tapOn:
+    id: home_button_start_game
+- assertVisible: "8 songs.*"
+- assertVisible: "BACK UP"
+- assertVisible: "DNA"
+- assertVisible: "Fantastic World"
+# DISPLAYBPM "128.000000" must show as 128
+- assertNotVisible: ".*128\\.0+.*"
+- tapOn: "BACK UP"
+- assertVisible: "133"
+- tapOn:
+    id: music_button_start
+- assertVisible: "BACK UP"
+- assertVisible: "EVENT STAGE"
+- tapOn:
+    id: gameplay_button_back
+- assertVisible:
+    id: music_button_start
+- back
+- runFlow:
+    file: subflows/ensure-finley.yaml

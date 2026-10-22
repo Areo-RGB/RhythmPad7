@@ -70,7 +70,8 @@ object SimfileLoader {
     val timing = songTimingOrDefault()
     val bpms = timing.bpmValues
     val displayBpm = header["DISPLAYBPM"]?.trim()?.takeIf { it.isNotEmpty() && it != "*" }
-      ?.replace(":", " – ")
+      // "128.000000" → "128", "120:180" → "120 – 180"
+      ?.split(':')?.joinToString(" – ") { v -> v.trim().toDoubleOrNull()?.roundToInt()?.toString() ?: v.trim() }
       ?: if (bpms.min().roundToInt() == bpms.max().roundToInt()) {
         "${bpms.first().roundToInt()}"
       } else {

@@ -16,6 +16,9 @@ import com.example.core.gameplay.AutoSync
 import com.example.core.gameplay.GameplayClock
 import com.example.core.gameplay.GameplayRoundState
 import com.example.core.gameplay.ScrollMod
+import com.example.core.gameplay.EndlessGenerator
+import com.example.core.gameplay.PracticePatternGenerator
+import com.example.core.gameplay.RoundMeta
 import com.example.core.input.ControllerManager
 import com.example.core.input.SharedPreferencesMappingStore
 import com.example.core.model.ControllerInfo
@@ -36,6 +39,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,6 +56,8 @@ class RhythmGameViewModel(
   val gameplayClock: GameplayClock = GameplayClock(),
   private val songAudio: SongAudio? = null,
   private val assets: AssetManager? = null,
+  /** Extra simfile folders on device storage (`adb push` songs here), scanned after the bundled ones. */
+  private val songsDirs: List<java.io.File> = emptyList(),
   private val prefs: SharedPreferences? = null,
   private var scoreStore: ScoreStore? = null,
   private val scoreStoreForProfile: ((PlayerProfile) -> ScoreStore)? = null
@@ -94,8 +101,46 @@ class RhythmGameViewModel(
   )
   val scrollMod: StateFlow<ScrollMod> = _scrollMod.asStateFlow()
 
+  // Holds/rolls on or off (StepMania NoHolds): off turns every hold head into a plain tap, persisted
+  private val _holdsEnabled = MutableStateFlow(prefs?.getBoolean(PREF_HOLDS_ENABLED, true) ?: true)
+  val holdsEnabled: StateFlow<Boolean> = _holdsEnabled.asStateFlow()
+
+  fun setHoldsEnabled(enabled: Boolean) {
+    _holdsEnabled.value = enabled
+    prefs?.edit()?.putBoolean(PREF_HOLDS_ENABLED, enabled)?.apply()
+    val round = _roundState.value
+    if (!round.isRunning || round.isCompleted) return
+    when {
+      !enabled -> _roundState.update { stripHolds(it) }
+      // Endless: regenerate the measures that are not on screen yet
+      round.endlessLevel != null -> setEndlessLevel(round.endlessLevel)
+      // Songs: restore hold tails on notes that are still pending, from the chart
+      else -> currentSelection?.let { (song, chart) ->
+        val source = GameplayRoundState.createSongRound(song, chart).notes.associateBy { it.id }
+        _roundState.update { r ->
+          r.copy(notes = r.notes.map { note ->
+            val orig = source[note.id]
+            if (note.isPending && orig != null && orig.isHold) {
+              note.copy(holdEndMs = orig.holdEndMs, holdEndBeat = orig.holdEndBeat, isRoll = orig.isRoll)
+            } else note
+          })
+        }
+      }
+    }
+  }
+
+  /** Pending holds/rolls become taps (already-judged notes keep their result). */
+  private fun stripHolds(round: GameplayRoundState): GameplayRoundState {
+    if (round.notes.none { it.isPending && it.isHold }) return round
+    return round.copy(notes = round.notes.map {
+      if (it.isPending && it.isHold) it.copy(holdEndMs = null, holdEndBeat = null, isRoll = false) else it
+    })
+  }
+
   fun setScrollMod(mod: ScrollMod) {
     _scrollMod.value = mod
+    // Apply live to the round in progress (mid-song speed change from the gameplay HUD)
+    _roundState.update { it.copy(scrollMod = mod) }
     prefs?.edit()?.putString(PREF_SCROLL_MOD, mod.serialize())?.apply()
   }
 
@@ -199,9 +244,26 @@ class RhythmGameViewModel(
     viewModelScope.launch {
       controllerManager.menuButtons.collect { _menuInputs.tryEmit(MenuInput.Button(it)) }
     }
-    if (assets != null) {
+    reloadSongs()
+    viewModelScope.launch {
+      controllerManager.gameInputEvents.collect { event ->
+        processInputEvent(event)
+      }
+    }
+  }
+
+  /** Scans bundled songs plus [songsDirs]; called again once storage access is granted. */
+  fun reloadSongs() {
+    val assets = assets ?: return
+    run {
       viewModelScope.launch {
-        val loaded = withContext(Dispatchers.IO) { SongLibrary.loadFromAssets(assets) }
+        val loaded = withContext(Dispatchers.IO) {
+          val external = songsDirs.flatMap { dir ->
+            runCatching { dir.mkdirs(); SongLibrary.loadFromDirectory(dir) }
+              .onFailure { Log.e(TAG, "Failed to scan ${dir.path}", it) }.getOrNull().orEmpty()
+          }
+          (SongLibrary.loadFromAssets(assets) + external).sortedBy { it.title.lowercase() }
+        }
         _songs.value = loaded
         _songsLoading.value = false
         scoreStore?.let { store ->
@@ -215,11 +277,6 @@ class RhythmGameViewModel(
           val pruned = withContext(Dispatchers.IO) { store.pruneInvalidRecords(validChecks) }
           _bestScores.value = pruned
         }
-      }
-    }
-    viewModelScope.launch {
-      controllerManager.gameInputEvents.collect { event ->
-        processInputEvent(event)
       }
     }
   }
@@ -280,7 +337,182 @@ class RhythmGameViewModel(
    */
   fun startSongRound(song: Song, chart: Chart) {
     currentSelection = song to chart
-    beginRound(GameplayRoundState.createSongRound(song, chart, isRunning = true, scrollMod = _scrollMod.value))
+    val round = GameplayRoundState.createSongRound(song, chart, isRunning = true, scrollMod = _scrollMod.value)
+    beginRound(if (_holdsEnabled.value) round else stripHolds(round))
+  }
+
+  private val endlessGenerator: EndlessGenerator? by lazy {
+    try {
+      assets?.open("endless/phrases.json")?.bufferedReader()?.use { EndlessGenerator.parse(it.readText()) }
+    } catch (e: Exception) {
+      Log.e(TAG, "Failed to load endless phrases", e)
+      null
+    }
+  }
+
+  /** Endless mode: random measures from the pattern library until the player quits. */
+  fun startEndlessRound(level: Int = _endlessLevel.value) {
+    currentSelection = null
+    val song = pickEndlessSong()
+    val round = if (song != null) {
+      endlessSongRound(song, level, GameplayRoundState(
+        bpm = EndlessGenerator.BPM,
+        beatZeroTimeMs = PracticePatternGenerator.DEFAULT_BEAT_ZERO_MS,
+        currentGameTimeMs = 0L,
+        isRunning = true,
+        notes = emptyList(),
+        scrollMod = _scrollMod.value,
+        endlessLevel = level
+      ), musicStartMs = ENDLESS_FIRST_SONG_START_MS)
+    } else {
+      // No constant-tempo song in the library: silent 130 BPM grid
+      endlessSong = null
+      endlessFirstMeasure = ENDLESS_LEAD_IN_MEASURES
+      endlessLastMeasure = Int.MAX_VALUE
+      val bpm = EndlessGenerator.BPM
+      GameplayRoundState(
+        bpm = bpm,
+        beatZeroTimeMs = PracticePatternGenerator.DEFAULT_BEAT_ZERO_MS,
+        currentGameTimeMs = 0L,
+        isRunning = true,
+        notes = emptyList(),
+        scrollMod = _scrollMod.value,
+        readBpm = bpm.toDouble(),
+        endlessLevel = level,
+        // Empty lead-in measures so no arrows scroll in during the countdown
+        endlessNextMeasure = ENDLESS_LEAD_IN_MEASURES,
+        meta = endlessMeta(level)
+      )
+    }
+    beginRound(topUpEndless(round))
+  }
+
+  // Endless music: the current song and the measure range its steps may use
+  private var endlessSong: Song? = null
+  private var endlessFirstMeasure = 0
+  private var endlessLastMeasure = Int.MAX_VALUE
+  private var endlessSongEndMs = Long.MAX_VALUE
+
+  /** Random constant-tempo song from the library (bundled + Songs folder), not the one just played. */
+  private fun pickEndlessSong(): Song? {
+    val candidates = _songs.value.filter { it.musicPath != null && it.songTiming.isConstantTempo && it.charts.isNotEmpty() }
+    return (candidates.filter { it.folder != endlessSong?.folder }.ifEmpty { candidates }).randomOrNull()
+  }
+
+  /**
+   * Switches [round] onto [song]: its music starts at [musicStartMs] and its beat grid times the
+   * generated measures, from the song's first chart step to its last (intro/outro stay empty).
+   */
+  private fun endlessSongRound(song: Song, level: Int, round: GameplayRoundState, musicStartMs: Long): GameplayRoundState {
+    val timing = song.songTiming
+    val steps = song.charts.flatMap { it.steps }
+    val firstStep = steps.minOfOrNull { it.timeSeconds } ?: 0.0
+    val lastStep = steps.maxOfOrNull { it.endTimeSeconds ?: it.timeSeconds } ?: 0.0
+    val bpb = EndlessGenerator.BEATS_PER_MEASURE
+    endlessSong = song
+    endlessFirstMeasure = kotlin.math.ceil(timing.beatAtTime(firstStep) / bpb - 1e-6).toInt().coerceAtLeast(0)
+    endlessLastMeasure = (timing.beatAtTime(lastStep) / bpb).toInt() - 1
+    endlessSongEndMs = musicStartMs + ((lastStep + ENDLESS_SONG_TAIL_S) * 1000).toLong()
+    return round.copy(
+      bpm = timing.bpmValues.first().roundToInt(),
+      musicStartMs = musicStartMs,
+      timing = timing,
+      readBpm = song.readBpm,
+      endlessNextMeasure = endlessFirstMeasure,
+      meta = endlessMeta(level)
+    )
+  }
+
+  /** At the end of the current song's steps, the next song starts after a short gap. */
+  private fun advanceEndlessSong(round: GameplayRoundState): GameplayRoundState {
+    if (endlessSong == null || round.currentGameTimeMs < endlessSongEndMs) return round
+    val next = pickEndlessSong() ?: return round
+    songAudio?.stop()
+    audioStarted = false
+    next.musicPath?.let { songAudio?.prepare(it) }
+    // Beats restart at 0 on the new grid. The old song's notes (all judged) stay for scoring,
+    // moved far back in beats so the X/M-mod renderer keeps them off screen.
+    val retired = round.notes.map { n ->
+      n.copy(beat = n.beat - ENDLESS_RETIRED_BEAT_SHIFT, holdEndBeat = n.holdEndBeat?.minus(ENDLESS_RETIRED_BEAT_SHIFT))
+    }
+    return endlessSongRound(next, round.endlessLevel ?: 0, round.copy(notes = retired),
+      musicStartMs = round.currentGameTimeMs + ENDLESS_SONG_GAP_MS)
+  }
+
+  // Endless tech filter: bits of EndlessGenerator.TECH the player has switched off, persisted
+  private val _endlessBlockedTech = MutableStateFlow(prefs?.getInt(PREF_ENDLESS_BLOCKED_TECH, 0) ?: 0)
+  val endlessBlockedTech: StateFlow<Int> = _endlessBlockedTech.asStateFlow()
+
+  /** Phrase counts per tech type at each endless level (null until the pattern library loads). */
+  val endlessTechCounts: List<IntArray>? by lazy {
+    endlessGenerator?.let { gen -> List(gen.levelCount) { gen.techCounts(it) } }
+  }
+
+  fun toggleEndlessTech(index: Int) {
+    val blocked = _endlessBlockedTech.value xor (1 shl index)
+    _endlessBlockedTech.value = blocked
+    prefs?.edit()?.putInt(PREF_ENDLESS_BLOCKED_TECH, blocked)?.apply()
+    _roundState.value.endlessLevel?.let { setEndlessLevel(it) }
+  }
+
+  private val _endlessLevel = MutableStateFlow(prefs?.getInt(PREF_ENDLESS_LEVEL, 0) ?: 0)
+
+  /** Changes endless difficulty; measures not yet near the screen are regenerated at the new level. */
+  fun setEndlessLevel(level: Int) {
+    val gen = endlessGenerator ?: return
+    val lvl = level.coerceIn(0, gen.levelCount - 1)
+    _endlessLevel.value = lvl
+    prefs?.edit()?.putInt(PREF_ENDLESS_LEVEL, lvl)?.apply()
+    _roundState.update { round ->
+      if (!round.isEndless) return@update round
+      // Keep measures that start within ENDLESS_KEEP_MS (already scrolling into view)
+      val keepUntil = round.currentGameTimeMs + ENDLESS_KEEP_MS
+      var firstDropped = round.endlessNextMeasure
+      while (firstDropped > endlessFirstMeasure &&
+        round.gameTimeAtBeat(((firstDropped - 1) * EndlessGenerator.BEATS_PER_MEASURE).toDouble()) > keepUntil
+      ) firstDropped--
+      val cutBeat = (firstDropped * EndlessGenerator.BEATS_PER_MEASURE).toDouble()
+      topUpEndless(
+        round.copy(
+          notes = round.notes.filter { it.beat < cutBeat },
+          endlessLevel = lvl,
+          endlessNextMeasure = firstDropped,
+          meta = endlessMeta(lvl)
+        )
+      )
+    }
+  }
+
+  private fun endlessMeta(level: Int) = RoundMeta(
+    title = endlessSong?.let { "Endless · ${it.title}" } ?: "Endless",
+    artist = endlessSong?.artist ?: "ITGmania pattern library",
+    backgroundPath = endlessSong?.backgroundPath,
+    musicPath = endlessSong?.musicPath,
+    difficultyName = EndlessGenerator.LEVEL_NAMES.getOrElse(level) { "Level ${level + 1}" },
+    difficultyIndex = level,
+    meter = level + 1,
+    bpmLabel = endlessSong?.displayBpm ?: "${EndlessGenerator.BPM}"
+  )
+
+  /** Appends measures until notes reach ENDLESS_LOOKAHEAD_MS past the current time. */
+  private fun topUpEndless(round: GameplayRoundState): GameplayRoundState {
+    val gen = endlessGenerator ?: return round
+    val level = round.endlessLevel ?: return round
+    var measure = round.endlessNextMeasure
+    val added = mutableListOf<com.example.core.model.PracticeNote>()
+    var nextId = (round.notes.maxOfOrNull { it.id } ?: 0) + 1
+    while (measure <= endlessLastMeasure &&
+      round.gameTimeAtBeat((measure * EndlessGenerator.BEATS_PER_MEASURE).toDouble()) <
+      round.currentGameTimeMs + ENDLESS_LOOKAHEAD_MS
+    ) {
+      val notes = gen.measureNotes(measure, level, nextId, _endlessBlockedTech.value) { round.gameTimeAtBeat(it) }
+      nextId += notes.size
+      added += notes
+      measure++
+    }
+    if (measure == round.endlessNextMeasure) return round
+    val newNotes = if (_holdsEnabled.value) added else added.map { it.copy(holdEndMs = null, holdEndBeat = null) }
+    return round.copy(notes = round.notes + newNotes, endlessNextMeasure = measure)
   }
 
   private fun beginRound(round: GameplayRoundState) {
@@ -300,7 +532,10 @@ class RhythmGameViewModel(
    */
   fun restartRound() {
     val selection = currentSelection
-    if (selection != null) {
+    val endless = _roundState.value.endlessLevel
+    if (endless != null) {
+      startEndlessRound(endless)
+    } else if (selection != null) {
       startSongRound(selection.first, selection.second)
     } else {
       startNewRound()
@@ -371,7 +606,7 @@ class RhythmGameViewModel(
     val elapsedMs = gameplayClock.elapsedGameplayMs()
     // Pressed lanes feed StepMania-style hold/roll life
     val heldLanes = GameLane.entries.filterTo(mutableSetOf()) { _inputState.value.isLanePressed(it) }
-    val updated = current.advanceTime(elapsedMs, heldLanes)
+    val updated = topUpEndless(advanceEndlessSong(current.advanceTime(elapsedMs, heldLanes)))
     _roundState.value = updated
     if (updated.isCompleted) {
       gameplayClock.stop()
@@ -534,6 +769,22 @@ class RhythmGameViewModel(
   companion object {
     private const val TAG = "AudioSync"
     private const val PREF_SCROLL_MOD = "scroll_mod"
+    private const val PREF_ENDLESS_LEVEL = "endless_level"
+    private const val PREF_HOLDS_ENABLED = "holds_enabled"
+    private const val PREF_ENDLESS_BLOCKED_TECH = "endless_blocked_tech"
+    /** Endless notes are generated this far ahead of the clock. */
+    private const val ENDLESS_LOOKAHEAD_MS = 6_000L
+    /** On a level change, measures starting within this window stay (past the top of every speed preset). */
+    private const val ENDLESS_KEEP_MS = 3_000L
+    /** Two measures at 130 BPM ≈ 3.7 s after GO before the first endless arrow. */
+    private const val ENDLESS_LEAD_IN_MEASURES = 2
+    /** First endless song starts right after the 3-2-1-GO countdown. */
+    private const val ENDLESS_FIRST_SONG_START_MS = 3_000L
+    /** Silence between endless songs. */
+    private const val ENDLESS_SONG_GAP_MS = 2_000L
+    /** Music keeps playing this long after the last chart step before the next song. */
+    private const val ENDLESS_SONG_TAIL_S = 3.0
+    private const val ENDLESS_RETIRED_BEAT_SHIFT = 1_000_000.0
     private const val PREF_PROFILE = "player_profile"
     private const val PREF_INPUT_OFFSET = "input_offset_ms"
     const val MAX_INPUT_OFFSET_MS = 250
@@ -553,6 +804,11 @@ class RhythmGameViewModel(
         controllerManager = manager,
         songAudio = ExoSongAudio(appContext),
         assets = appContext.assets,
+        songsDirs = listOf(
+          // Shared folder (needs "All files access"): adb push or a file manager
+          java.io.File(android.os.Environment.getExternalStorageDirectory(), "RhythmPad7/Songs"),
+          java.io.File(appContext.filesDir, "Songs")
+        ),
         prefs = appContext.getSharedPreferences("rhythmpad7_settings", Context.MODE_PRIVATE),
         scoreStoreForProfile = { profile -> ScoreStore(java.io.File(appContext.filesDir, profile.scoreFileName)) }
       ) as T

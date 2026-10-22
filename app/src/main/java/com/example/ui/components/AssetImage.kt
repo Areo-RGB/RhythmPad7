@@ -23,7 +23,7 @@ fun rememberAssetBitmap(path: String?): State<ImageBitmap?> {
     if (path == null || state.value != null) return@LaunchedEffect
     val bitmap = withContext(Dispatchers.IO) {
       runCatching {
-        context.assets.open(path).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+        (if (path.startsWith("/")) java.io.File(path).inputStream() else context.assets.open(path)).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
       }.getOrNull()
     }
     if (bitmap != null) {

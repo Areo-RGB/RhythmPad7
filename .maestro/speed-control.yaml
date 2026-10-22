@@ -1,0 +1,67 @@
+# In-game speed stepper: clamps at both ends of ScrollMod.PRESETS, applies live and is saved.
+# Leaves the speed on M180.
+appId: com.rhythmpad7.app
+name: speed-control
+---
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/to-home.yaml
+- tapOn:
+    id: home_button_endless
+- assertVisible:
+    id: gameplay_speed_stepper
+# Down to the first preset; another tap must not wrap around
+- repeat:
+    while:
+      notVisible:
+        id: gameplay_speed_label
+        text: "M120"
+    commands:
+      - tapOn:
+          id: gameplay_button_speed_down
+- tapOn:
+    id: gameplay_button_speed_down
+- assertVisible:
+    id: gameplay_speed_label
+    text: "M120"
+- tapOn:
+    id: gameplay_button_speed_up
+- assertVisible:
+    id: gameplay_speed_label
+    text: "M180"
+# Up to the last preset (C450) and clamp there
+- repeat:
+    while:
+      notVisible:
+        id: gameplay_speed_label
+        text: "C450"
+    commands:
+      - tapOn:
+          id: gameplay_button_speed_up
+- tapOn:
+    id: gameplay_button_speed_up
+- assertVisible:
+    id: gameplay_speed_label
+    text: "C450"
+# Saved: survives an app restart
+- launchApp:
+    stopApp: true
+- runFlow:
+    file: subflows/to-home.yaml
+- tapOn:
+    id: home_button_endless
+- assertVisible:
+    id: gameplay_speed_label
+    text: "C450"
+- repeat:
+    while:
+      notVisible:
+        id: gameplay_speed_label
+        text: "M180"
+    commands:
+      - tapOn:
+          id: gameplay_button_speed_down
+- back
+- assertVisible:
+    id: home_button_start_game

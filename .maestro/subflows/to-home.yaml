@@ -1,0 +1,29 @@
+# Back out to the home screen from wherever the app resumed (gameplay, pause menu, song select).
+# Needed when the runner cannot kill the app (`phone flow`), harmless after a real restart.
+appId: com.rhythmpad7.app
+---
+- repeat:
+    times: 3
+    commands:
+      - runFlow:
+          when:
+            visible:
+              id: pause_button_quit
+          commands:
+            - tapOn:
+                id: pause_button_quit
+      - runFlow:
+          when:
+            visible:
+              id: gameplay_button_back
+          commands:
+            - tapOn:
+                id: gameplay_button_back
+      - runFlow:
+          when:
+            visible:
+              id: music_button_start
+          commands:
+            - back
+- assertVisible:
+    id: home_button_start_game

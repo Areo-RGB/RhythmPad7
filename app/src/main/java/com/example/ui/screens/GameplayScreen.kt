@@ -31,6 +31,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -164,7 +167,14 @@ fun GameplayScreen(
   menuInputs: Flow<MenuInput> = NoPadInputs,
   lastSubmitResult: SubmitResult? = null,
   autoSyncStatus: com.example.core.state.RhythmGameViewModel.AutoSyncStatus? = null,
-  inputOffsetMs: Int = 0
+  inputOffsetMs: Int = 0,
+  onScrollModChange: (com.example.core.gameplay.ScrollMod) -> Unit = {},
+  onEndlessLevelChange: (Int) -> Unit = {},
+  holdsEnabled: Boolean = true,
+  onHoldsEnabledChange: (Boolean) -> Unit = {},
+  endlessBlockedTech: Int = 0,
+  endlessTechCounts: List<IntArray>? = null,
+  onToggleEndlessTech: (Int) -> Unit = {}
 ) {
   BackHandler(onBack = onNavigateBack)
 
@@ -236,7 +246,7 @@ fun GameplayScreen(
       verticalAlignment = Alignment.Top
     ) {
       // =========================================================================
-      // LEFT ZONE: Navigation, Song Info, Song Meter & Mat Telemetry
+      // LEFT ZONE: Navigation, Song Info, Score & Judgments
       // =========================================================================
       Column(
         modifier = Modifier
@@ -265,7 +275,26 @@ fun GameplayScreen(
 
         SongInfoPanel(roundState = roundState)
 
-        MatStatusPanel(controllerInfo = controllerInfo, inputState = inputState)
+        ScoreFrame(roundState = roundState)
+
+        SmPanel(
+          modifier = Modifier.fillMaxWidth(),
+          title = "JUDGMENTS",
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+          JudgmentLine("FLAWLESS", "±22.5ms", roundState.w1Count, Judgment.W1.color)
+          JudgmentLine("PERFECT", "±45ms", roundState.w2Count, Judgment.W2.color)
+          JudgmentLine("GREAT", "±90ms", roundState.w3Count, Judgment.W3.color)
+          JudgmentLine("GOOD", "±135ms", roundState.w4Count, Judgment.W4.color)
+          JudgmentLine("BAD", "±180ms", roundState.w5Count, Judgment.W5.color)
+          JudgmentLine("MISS", ">180ms", roundState.missCount, Judgment.MISS.color)
+          if (roundState.totalHolds > 0) {
+            JudgmentLine("OK", "holds", roundState.heldCount, HoldOkColor)
+            JudgmentLine("NG", "let go", roundState.letGoCount, Judgment.MISS.color)
+          }
+          Spacer(modifier = Modifier.height(4.dp))
+          JudgmentLine("MAX COMBO", null, roundState.maxCombo, SmMaxCombo)
+        }
 
         // Optional Debug Telemetry Panel (housed inside Left Zone so the note field is never blocked)
         AnimatedVisibility(
@@ -312,7 +341,7 @@ fun GameplayScreen(
       }
 
       // =========================================================================
-      // RIGHT ZONE: Touch Controls, Score, Accuracy & Judgment Breakdown
+      // RIGHT ZONE: Touch Controls, Play Settings & Mat Telemetry
       // =========================================================================
       Column(
         modifier = Modifier
@@ -349,26 +378,21 @@ fun GameplayScreen(
           )
         }
 
-        ScoreFrame(roundState = roundState)
+        SpeedStepper(
+          current = roundState.scrollMod,
+          onChange = onScrollModChange
+        )
 
-        SmPanel(
-          modifier = Modifier.fillMaxWidth(),
-          title = "JUDGMENTS",
-          contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-          JudgmentLine("FLAWLESS", "±22.5ms", roundState.w1Count, Judgment.W1.color)
-          JudgmentLine("PERFECT", "±45ms", roundState.w2Count, Judgment.W2.color)
-          JudgmentLine("GREAT", "±90ms", roundState.w3Count, Judgment.W3.color)
-          JudgmentLine("GOOD", "±135ms", roundState.w4Count, Judgment.W4.color)
-          JudgmentLine("BAD", "±180ms", roundState.w5Count, Judgment.W5.color)
-          JudgmentLine("MISS", ">180ms", roundState.missCount, Judgment.MISS.color)
-          if (roundState.totalHolds > 0) {
-            JudgmentLine("OK", "holds", roundState.heldCount, HoldOkColor)
-            JudgmentLine("NG", "let go", roundState.letGoCount, Judgment.MISS.color)
+        roundState.endlessLevel?.let { level ->
+          LevelStepper(level = level, onChange = onEndlessLevelChange)
+          endlessTechCounts?.getOrNull(level)?.let { counts ->
+            TechFilter(counts = counts, blocked = endlessBlockedTech, onToggle = onToggleEndlessTech)
           }
-          Spacer(modifier = Modifier.height(4.dp))
-          JudgmentLine("MAX COMBO", null, roundState.maxCombo, SmMaxCombo)
         }
+
+        HoldsToggle(enabled = holdsEnabled, onChange = onHoldsEnabledChange)
+
+        MatStatusPanel(controllerInfo = controllerInfo, inputState = inputState)
       }
     }
 
@@ -1176,4 +1200,122 @@ private fun AutoSyncBadge(
       .background(Color(0xCC000000))
       .padding(horizontal = 12.dp, vertical = 4.dp)
   )
+}
+
+/** Touch speed control during play: steps through [ScrollMod.PRESETS] and applies immediately. */
+@Composable
+private fun SpeedStepper(
+  current: com.example.core.gameplay.ScrollMod,
+  onChange: (com.example.core.gameplay.ScrollMod) -> Unit
+) {
+  val presets = com.example.core.gameplay.ScrollMod.PRESETS
+  val idx = presets.indexOf(current)
+  fun step(delta: Int) {
+    val next = if (idx < 0) 0 else (idx + delta).coerceIn(0, presets.lastIndex)
+    onChange(presets[next])
+  }
+  Row(
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    modifier = Modifier.testTag("gameplay_speed_stepper")
+  ) {
+    SmIconButton(
+      icon = Icons.Default.Remove,
+      contentDescription = "Speed down",
+      onClick = { step(-1) },
+      modifier = Modifier.testTag("gameplay_button_speed_down")
+    )
+    Text(
+      text = current.label,
+      color = Color.White,
+      fontWeight = FontWeight.Bold,
+      fontSize = 18.sp,
+      modifier = Modifier.widthIn(min = 64.dp).testTag("gameplay_speed_label"),
+      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+    )
+    SmIconButton(
+      icon = Icons.Default.Add,
+      contentDescription = "Speed up",
+      onClick = { step(1) },
+      modifier = Modifier.testTag("gameplay_button_speed_up")
+    )
+  }
+}
+
+/** Endless mode difficulty control; new measures use the chosen level. */
+@Composable
+private fun LevelStepper(level: Int, onChange: (Int) -> Unit) {
+  val names = com.example.core.gameplay.EndlessGenerator.LEVEL_NAMES
+  Row(
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically,
+    modifier = Modifier.testTag("gameplay_level_stepper")
+  ) {
+    SmIconButton(
+      icon = Icons.Default.Remove,
+      contentDescription = "Difficulty down",
+      onClick = { if (level > 0) onChange(level - 1) },
+      modifier = Modifier.testTag("gameplay_button_level_down")
+    )
+    Text(
+      text = names.getOrElse(level) { "L${level + 1}" }.uppercase(),
+      color = Color.White,
+      fontWeight = FontWeight.Bold,
+      fontSize = 14.sp,
+      modifier = Modifier.widthIn(min = 64.dp).testTag("gameplay_level_label"),
+      textAlign = androidx.compose.ui.text.style.TextAlign.Center
+    )
+    SmIconButton(
+      icon = Icons.Default.Add,
+      contentDescription = "Difficulty up",
+      onClick = { if (level < names.lastIndex) onChange(level + 1) },
+      modifier = Modifier.testTag("gameplay_button_level_up")
+    )
+  }
+}
+
+/** Holds on/off (StepMania NoHolds); off turns upcoming holds and rolls into taps. */
+@Composable
+private fun HoldsToggle(enabled: Boolean, onChange: (Boolean) -> Unit) {
+  Row(
+    horizontalArrangement = Arrangement.spacedBy(8.dp),
+    verticalAlignment = Alignment.CenterVertically
+  ) {
+    Text(
+      text = "HOLDS",
+      color = Color.White,
+      fontWeight = FontWeight.Bold,
+      fontSize = 14.sp
+    )
+    androidx.compose.material3.Switch(
+      checked = enabled,
+      onCheckedChange = onChange,
+      modifier = Modifier.testTag("gameplay_toggle_holds")
+    )
+  }
+}
+
+/**
+ * Endless tech filter (ITGmania TechCounts): one chip per tech type that occurs at this level;
+ * switched-off tech is left out of upcoming measures.
+ */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun TechFilter(counts: IntArray, blocked: Int, onToggle: (Int) -> Unit) {
+  androidx.compose.foundation.layout.FlowRow(
+    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
+    verticalArrangement = Arrangement.spacedBy(6.dp),
+    modifier = Modifier.widthIn(max = 320.dp).testTag("gameplay_tech_filter")
+  ) {
+    com.example.core.gameplay.EndlessGenerator.TECH.forEachIndexed { i, name ->
+      if (counts.getOrElse(i) { 0 } == 0) return@forEachIndexed
+      val on = blocked and (1 shl i) == 0
+      androidx.compose.material3.FilterChip(
+        selected = on,
+        onClick = { onToggle(i) },
+        label = { Text(name, fontSize = 12.sp) },
+        modifier = Modifier.testTag("gameplay_tech_${name.lowercase()}")
+      )
+    }
+  }
 }
