@@ -72,6 +72,31 @@ See `docs/TESTING.md`. Unit tests (`./gradlew :app:testDebugUnitTest`) include a
 
 ---
 
+## Looking up library docs — `rhythmpad-wiki`
+
+Use `rhythmpad-wiki` (DeepWiki, on `PATH`) to look up how StepMania 5 does something before porting it, and for the Android libraries. It complements the local `stepmania-pcapp/` source and `docs/stepmania-reference/`.
+
+| `--repo` | repository | ask it about |
+| --- | --- | --- |
+| `stepmania` | `stepmania/stepmania` | StepMania 5: TimingData, MSD/SM parsing, scrolling, holds, judgments (default) |
+| `compose` | `androidx/androidx` | Jetpack Compose, Lifecycle, Room, CameraX |
+| `media` | `androidx/media` | Media3 / ExoPlayer audio playback and sync |
+
+```bash
+rhythmpad-wiki ask "<question>"                    # default repo (stepmania)
+rhythmpad-wiki ask "<question>" --repo compose
+```
+
+Usage, repo selection and how to read answers: @/home/paul/.cc-switch/skills/deepwiki/SKILL.md
+
+---
+
 ## Tablet Automation
 
 `tools/tablet-agent/` contains the Mobilerun Portal client, `tablet` CLI, and `tablet-agent` MCP server. Read its `README.md` for setup and commands. Prefer current resource IDs from `tablet inspect` / MCP `inspect_screen` over stored coordinates. Check `verified` separately from `accepted`; never blindly repeat an action whose error reports `outcome_unknown:true`. `tablet doctor` is read-only; `--full` also round-trips clipboard/files and restores its temporary settings. Keep device profiles/tokens outside the repository. Gameplay inputs must still come from the physical dance mat.
+
+## Checks
+
+After editing code, run these and fix what they report in files you touched (don't reformat untouched files):
+
+- `./gradlew spotlessCheck` — fix: `./gradlew spotlessApply`

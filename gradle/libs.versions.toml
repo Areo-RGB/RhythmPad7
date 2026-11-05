@@ -1,4 +1,5 @@
 [versions]
+spotless = "8.11.0"
 media3 = "1.10.1"
 agp = "9.1.1"
 coreKtx = "1.18.0"
@@ -99,6 +100,7 @@ googleid = { group = "com.google.android.libraries.identity.googleid", name = "g
 
 
 [plugins]
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 google-devtools-ksp = { id = "com.google.devtools.ksp", version.ref = "googleDevtoolsKsp" }
